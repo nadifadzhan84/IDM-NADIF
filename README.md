@@ -49,9 +49,9 @@ Pastikan Anda menjalankan skrip sebagai **Administrator**.
 
 ### 2. Jalankan Skrip
 Pilih salah satu mode di bawah ini:
-- **`快速激活.cmd` (Aktivasi Cepat)**: Mode pembekuan otomatis (Disarankan).
-- **`普通激活.cmd` (Aktivasi Normal)**: Menggunakan info registrasi acak.
-- **`重置激活.cmd` (Reset)**: Menghapus status aktivasi saat ini.
+- **`Aktivasi Cepat.cmd` (Aktivasi Cepat)**: Mode pembekuan otomatis (Disarankan).
+- **`Aktivasi Normal.cmd` (Aktivasi Normal)**: Menggunakan info registrasi acak.
+- **`Reset Aktivasi.cmd` (Reset)**: Menghapus status aktivasi saat ini.
 
 ### 3. Antarmuka Menu
 ```text
