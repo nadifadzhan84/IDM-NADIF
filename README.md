@@ -1,11 +1,12 @@
 <div align="center">
 
 # 🛠️ Skrip Aktivasi IDM (Edisi Bahasa Indonesia)
-### **Solusi Aktivasi Internet Download Manager v1.3.1**
+### **Solusi Aktivasi Internet Download Manager DM Activation Script v1.9.5**
+> By Nadif Rizky
 
-[![Status Windows](https://img.shields.io/badge/Windows_Validation-Passing-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/tytsxai/IDM-Activation-Script-Chinese)
-[![Lisensi](https://img.shields.io/badge/License-GPL_v3-blue?style=for-the-badge)](./LICENSE)
-[![Versi](https://img.shields.io/badge/Version-v1.3.1-brightgreen?style=for-the-badge)](./CHANGELOG.md)
+[![Status Windows](https://img.shields.io/badge/Windows_Validation-Passing-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/nadifadzhan84/IDM-NADIF)
+[![Lisensi](https://img.shields.io/badge/License-GPL_v3-blue?style=for-the-badge)](https://github.com/nadifadzhan84/IDM-NADIF/blob/main/LICENSE)
+[![Versi](https://img.shields.io/badge/Version-v1.9.5-brightgreen?style=for-the-badge)](https://github.com/nadifadzhan84/IDM-NADIF)
 [![Platform](https://img.shields.io/badge/Platform-Win_7_|_8_|_10_|_11-005A9E?style=for-the-badge)](#-persyaratan-sistem)
 
 ---
@@ -13,7 +14,7 @@
 **Satu klik untuk aktivasi Internet Download Manager (IDM) dengan antarmuka yang bersih dan efisien.**
 *Mendukung pembekuan masa percobaan, registrasi acak, dan reset instan.*
 
-[📥 Unduh Sekarang](https://github.com/tytsxai/IDM-Activation-Script-Chinese/releases/latest) • [📖 Panduan](#-cara-penggunaan) • [❓ FAQ](#-pertanyaan-yang-sering-diajukan)
+[📥 Unduh Sekarang](https://github.com/nadifadzhan84/IDM-NADIF/releases/latest) • [📖 Panduan](#-cara-penggunaan) • [❓ FAQ](#-pertanyaan-yang-sering-diajukan)
 
 </div>
 
@@ -34,11 +35,8 @@
 
 | Versi | Tautan Unduh | Verifikasi (SHA256) |
 | :--- | :--- | :--- |
-| **Terbaru (v1.3.1)** | [Download .zip](https://github.com/tytsxai/IDM-Activation-Script-Chinese/raw/main/release/IDM-Activation-Script-v1.3.1.zip) | `Cek file .sha256 di rilis` |
-| **History** | [Changelog](./CHANGELOG.md) | - |
-
-> **💡 Catatan Keamanan:** Disarankan untuk memverifikasi file menggunakan PowerShell:
-> `Get-FileHash .\IDM-Activation-Script-v1.3.1.zip -Algorithm SHA256`
+| **Terbaru (v1.9.5)** | [Download .zip](https://github.com/nadifadzhan84/IDM-NADIF/archive/refs/heads/main.zip) | `Lihat rilis GitHub` |
+| **Repositori** | [GitHub Nadif Rizky](https://github.com/nadifadzhan84/IDM-NADIF) | - |
 
 ---
 
