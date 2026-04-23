@@ -1,0 +1,396 @@
+name: Telegram Repo Update
+
+# Required secrets:
+# - TELEGRAM_BOT_TOKEN
+# - TELEGRAM_CHANNEL_ID  # Telegram group/channel chat ID
+
+'on':
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Send Telegram group notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMPARE_URL: ${{ github.event.compare }}
+        run: |
+          python - <<'PY'
+          import html
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+          if not token or not chat_id:
+              raise SystemExit("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID GitHub secret.")
+
+          zero_sha = "0" * 40
+          before_sha_full = (os.environ.get("BEFORE_SHA") or "").strip()
+          after_sha_full = (os.environ.get("SHA") or "").strip()
+
+          def telegram_call(method, payload):
+              data = urllib.parse.urlencode(payload).encode("utf-8")
+              request = urllib.request.Request(
+                  f"https://api.telegram.org/bot{token}/{method}",
+                  data=data,
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      body = response.read().decode("utf-8", errors="replace")
+                      print(f"{method} response: {body}")
+                      return json.loads(body)
+              except urllib.error.HTTPError as exc:
+                  error_body = exc.read().decode("utf-8", errors="replace")
+                  print(f"{method} failed: HTTP {exc.code}")
+                  print(error_body)
+                  raise
+
+          def run_git(*args):
+              return subprocess.check_output(
+                  ["git", *args],
+                  text=True,
+                  encoding="utf-8",
+                  errors="replace",
+              ).strip()
+
+          def try_git(*args):
+              try:
+                  return run_git(*args)
+              except Exception:
+                  return ""
+
+          def changed_file_list(*extra_args):
+              raw = ""
+              if before_sha_full and before_sha_full != zero_sha:
+                  raw = try_git("diff", *extra_args, f"{before_sha_full}..{after_sha_full}")
+              if not raw:
+                  raw = try_git("show", *extra_args, "--pretty=format:", "HEAD")
+              return [line.strip() for line in raw.splitlines() if line.strip()]
+
+          def load_json_file(path):
+              file_path = Path(path)
+              if not file_path.exists():
+                  return None
+              try:
+                  return json.loads(file_path.read_text(encoding="utf-8", errors="replace"))
+              except Exception:
+                  return None
+
+          def load_previous_json(path):
+              candidates = []
+              if before_sha_full and before_sha_full != zero_sha:
+                  candidates.append(before_sha_full)
+              candidates.extend(["HEAD^", "HEAD~1"])
+              for ref in candidates:
+                  content = try_git("show", f"{ref}:{path}")
+                  if not content:
+                      continue
+                  try:
+                      return json.loads(content)
+                  except Exception:
+                      continue
+              return None
+
+          def unique(values):
+              seen = set()
+              items = []
+              for value in values or []:
+                  if not isinstance(value, str):
+                      continue
+                  if value in seen:
+                      continue
+                  seen.add(value)
+                  items.append(value)
+              return items
+
+          def diff_added(current_values, previous_values):
+              previous_set = set(previous_values or [])
+              return [value for value in current_values or [] if value not in previous_set]
+
+          def flatten_manifest_entries(entries, key):
+              values = []
+              for entry in entries or []:
+                  if not isinstance(entry, dict):
+                      continue
+                  values.extend(entry.get(key) or [])
+              return unique(values)
+
+          def tree_lines(items, fallback):
+              if not items:
+                  return [f"┗ <i>{fallback}</i>"]
+              lines = []
+              for index, item in enumerate(items):
+                  branch = "┗" if index == len(items) - 1 else "┣"
+                  lines.append(f"{branch} {item}")
+              return lines
+
+          def html_code_list(items, limit=5):
+              clipped = unique(items)[:limit]
+              return ", ".join(f"<code>{html.escape(item)}</code>" for item in clipped)
+
+          def touches(*prefixes):
+              for path in changed_files:
+                  for prefix in prefixes:
+                      normalized = prefix.rstrip("/")
+                      if path == normalized or path.startswith(normalized + "/"):
+                          return True
+              return False
+
+          def file_icon(path):
+              lowered = path.lower()
+              if lowered.endswith(".js"):
+                  return "🟨"
+              if lowered.endswith(".json"):
+                  return "🧩"
+              if lowered.endswith((".yml", ".yaml")):
+                  return "⚙️"
+              if lowered.endswith(".css"):
+                  return "🎨"
+              if lowered.endswith(".html"):
+                  return "🪟"
+              if lowered.endswith((".png", ".jpg", ".jpeg", ".webp", ".svg")):
+                  return "🖼️"
+              return "📄"
+
+          changed_files = changed_file_list("--name-only")
+          added_files = changed_file_list("--diff-filter=A", "--name-only")
+
+          event_name = (os.environ.get("EVENT_NAME") or "").strip()
+
+          if (
+              changed_files
+              and all(path.startswith(".github/") for path in changed_files)
+              and event_name != "workflow_dispatch"
+          ):
+              print("Skipping Telegram notification for workflow-only changes.")
+              raise SystemExit(0)
+
+          try:
+              if before_sha_full and before_sha_full != zero_sha:
+                  shortstat = run_git("diff", "--shortstat", f"{before_sha_full}..{after_sha_full}")
+              else:
+                  shortstat = run_git("show", "--shortstat", "--format=", "HEAD")
+          except Exception:
+              shortstat = ""
+
+          commit_message = (os.environ.get("COMMIT_MESSAGE") or "").strip()
+          if not commit_message:
+              commit_message = try_git("log", "-1", "--pretty=%B")
+          commit_message = commit_message.strip() or "(no commit message)"
+          commit_lines = [line.strip() for line in commit_message.splitlines() if line.strip()]
+          headline = commit_lines[0] if commit_lines else "(no commit message)"
+          full_text = "\n".join(commit_lines).lower()
+
+          if "[skip telegram]" in full_text or "[skip-telegram]" in full_text:
+              print("Skipping Telegram notification because commit message requested it.")
+              raise SystemExit(0)
+
+          current_manifest = load_json_file("manifest.json")
+          previous_manifest = load_previous_json("manifest.json") if current_manifest else None
+
+          current_version = "unknown"
+          previous_version = ""
+          if current_manifest:
+              current_version = str(current_manifest.get("version") or "unknown")
+          if previous_manifest:
+              previous_version = str(previous_manifest.get("version") or "")
+
+          current_host_permissions = unique((current_manifest or {}).get("host_permissions", []))
+          previous_host_permissions = unique((previous_manifest or {}).get("host_permissions", []))
+          added_host_permissions = diff_added(current_host_permissions, previous_host_permissions)
+
+          current_content_matches = flatten_manifest_entries((current_manifest or {}).get("content_scripts", []), "matches")
+          previous_content_matches = flatten_manifest_entries((previous_manifest or {}).get("content_scripts", []), "matches")
+          added_content_matches = diff_added(current_content_matches, previous_content_matches)
+
+          current_content_css = flatten_manifest_entries((current_manifest or {}).get("content_scripts", []), "css")
+          previous_content_css = flatten_manifest_entries((previous_manifest or {}).get("content_scripts", []), "css")
+          added_content_css = diff_added(current_content_css, previous_content_css)
+
+          current_web_resources = flatten_manifest_entries((current_manifest or {}).get("web_accessible_resources", []), "resources")
+          previous_web_resources = flatten_manifest_entries((previous_manifest or {}).get("web_accessible_resources", []), "resources")
+          added_web_resources = diff_added(current_web_resources, previous_web_resources)
+
+          interesting_hosts = []
+          for item in unique(added_host_permissions + added_content_matches):
+              lowered = item.lower()
+              if any(keyword in lowered for keyword in ("pay.anything.com", "vercel.com", "localhost", "127.0.0.1")):
+                  interesting_hosts.append(item)
+
+          interesting_resources = []
+          for item in unique(added_content_css + added_web_resources):
+              lowered = item.lower()
+              if any(keyword in lowered for keyword in ("checkout-widgets.css", "checkout-orb-icon.png", "inject-relay.js")):
+                  interesting_resources.append(item)
+
+          badges = ["<code>📢 GROUP UPDATE</code>"]
+          if current_version == "1.9.5":
+              badges.append("<code>🔥 v1.9.5</code>")
+          elif current_version != "unknown":
+              badges.append(f"<code>🔖 v{html.escape(current_version)}</code>")
+          if interesting_hosts:
+              badges.append("<code>🌐 HOSTS</code>")
+          if touches("content-scripts/checkout-widgets.css", "content-main.js", "content-scripts/content.js"):
+              badges.append("<code>🧩 CHECKOUT</code>")
+          if touches("settings.html", "options.html", "ui/options.css", "chunks/settings.js", "chunks/options.js"):
+              badges.append("<code>🎛 UI</code>")
+          if touches("licenses.json", "license-lifetime.json"):
+              badges.append("<code>🔐 LICENSE</code>")
+
+          important_points = []
+          if current_version == "1.9.5":
+              important_points.append("📣 Member group wajib tahu: ini adalah skrip update terbaru <code>v1.9.5</code>.")
+          elif current_version != "unknown":
+              important_points.append(f"📣 Build repo terbaru yang baru dikirim adalah <code>v{html.escape(current_version)}</code>.")
+
+          if previous_version and current_version != previous_version:
+              important_points.append(
+                  f"🚀 Versi manifest naik dari <code>v{html.escape(previous_version)}</code> ke <code>v{html.escape(current_version)}</code>."
+              )
+
+          if touches("content-scripts/checkout-widgets.css", "content-main.js", "content-scripts/content.js"):
+              important_points.append("🧩 Runtime checkout dan banner/widget versi ikut diperbarui agar status build lebih jelas di halaman target.")
+
+          if touches("settings.html", "options.html", "ui/options.css", "chunks/settings.js", "chunks/options.js"):
+              important_points.append("🎛 Panel settings dan configuration dipoles ulang serta dioptimalkan untuk performa yang lebih ringan.")
+
+          if touches("licenses.json", "license-lifetime.json"):
+              important_points.append("🔐 Paket lisensi standar dan lifetime ikut diperbarui pada build ini.")
+
+          if touches("runtime-fixtures", "runtime-artifacts"):
+              important_points.append("🧪 Fixture runtime dan artefak validasi ikut ditambahkan untuk pengecekan build terbaru.")
+
+          if touches("background.js", "worker.js"):
+              important_points.append("⚙️ Engine background dan worker diselaraskan dengan manifest/runtime terbaru.")
+
+          important_points = unique(important_points)[:5]
+
+          manifest_points = []
+          if current_manifest:
+              if previous_version and current_version != previous_version:
+                  manifest_points.append(
+                      f"🔖 Manifest version berubah <code>{html.escape(previous_version)}</code> → <code>{html.escape(current_version)}</code>."
+                  )
+              else:
+                  manifest_points.append(f"🔖 Manifest aktif saat ini: <code>{html.escape(current_version)}</code>.")
+
+              if interesting_hosts:
+                  manifest_points.append(f"🌐 Target host tambahan terdeteksi: {html_code_list(interesting_hosts)}.")
+
+              if interesting_resources:
+                  manifest_points.append(f"🧩 Resource/runtime tambahan terdeteksi: {html_code_list(interesting_resources)}.")
+
+              if added_files and any(path in {"licenses.json", "license-lifetime.json"} for path in added_files):
+                  manifest_points.append("🔐 File lisensi baru ikut masuk di build ini untuk distribusi update.")
+
+          manifest_points = unique(manifest_points)[:4]
+
+          file_lines = []
+          for path in changed_files[:8]:
+              file_lines.append(f"{file_icon(path)} <code>{html.escape(path)}</code>")
+          if len(changed_files) > 8:
+              file_lines.append(f"➕ <i>{len(changed_files) - 8} file lain juga ikut berubah</i>")
+
+          short_sha = (after_sha_full or "")[:7]
+          before_sha = (before_sha_full or "")[:7]
+          compare_url = (os.environ.get("COMPARE_URL") or "").strip()
+          commit_url = os.environ.get("COMMIT_URL", "").strip()
+          run_url = os.environ.get("RUN_URL", "").strip()
+
+          release_banner = "� <b>LATEST UPDATE: SIOUX BYPASSER</b> 🚀"
+          release_subtitle = (
+              f"<code>Elite Gateway Exploitation Update • v{html.escape(current_version)}</code>"
+              if current_version != "unknown"
+              else "<code>Elite Gateway Exploitation Update</code>"
+          )
+
+          narrative = []
+          if current_version == "1.9.6":
+              narrative = [
+                  "Hello everyone! SIOUX Bypasser just got a massive update to version <b>1.9.6</b>, bringing major expansions for elite payment gateway exploitation flows.",
+                  "",
+                  "🌐 <b>1. NEW: Adobe Commerce & Canva Flow</b>",
+                  "• Added full support for bypassing elite gateways on <b>Adobe Commerce</b> (<code>commerce.adobe.com</code>, <code>tokui-commerce.adobe.com</code>).",
+                  "• Added bypass injection for the <b>Canva</b> design platform (<code>*.canva.com</code>).",
+                  "",
+                  "🛒 <b>2. Expanded Gateways & AI Services</b>",
+                  "Injected bypass support for the newest elite billing infrastructures:",
+                  "• <b>AI Platforms:</b> OpenAI / ChatGPT Billing (<code>billing.openai.com</code>), Vercel & Flyne AI.",
+                  "• <b>Gateways:</b> Stripe Network, Adyen, Braintree, Checkout.com, Paddle, Airwallex & Square.",
+                  "• <b>Gaming & Digital:</b> Xsolla, GOG, Steampowered & Pandora.",
+                  "• <b>Captcha APIs:</b> Seamless integration with hCaptcha, reCaptcha, 2Captcha, CapSolver, Nopecha & Anti-Captcha.",
+                  "",
+                  "🛠 <b>3. Bug Fixes & Optimization</b>",
+                  "• <b>Chrome Fix (MV3):</b> Fixed the <code>background.scripts</code> Manifest V3 error on Chrome. Runs 100% smoothly using <code>service_worker</code>.",
+                  "• Cleaner format distributions: <code>.zip</code> for Chrome/Edge and native <code>.xpi</code> for Firefox.",
+                  "",
+                  "📁 <b>How to Update:</b>",
+                  "1. Remove your old SIOUX extension from the browser.",
+                  "2. Download the newest files from the repo.",
+                  f"3. Install <code>sioux-bypasser-v{html.escape(current_version)}-chrome.zip</code> or <code>sioux-bypasser-v{html.escape(current_version)}-firefox.xpi</code>.",
+                  ""
+              ]
+
+          text = "\n".join(
+              [
+                  release_banner,
+                  release_subtitle,
+                  "",
+                  *narrative,
+                  "┏ <b>Build Info</b>",
+                  f"┣ 📦 Repo: <code>{html.escape(os.environ.get('REPOSITORY', '-'))}</code>",
+                  f"┣ 🔖 Commit: <code>{html.escape(short_sha or '-')}</code>",
+                  f"┣ 👤 Author: <code>{html.escape(os.environ.get('ACTOR', '-'))}</code>",
+                  f"┗ 📝 Message: <i>{html.escape(headline)}</i>",
+                  "",
+                  "┏ <b>Files Changed</b>",
+                  *tree_lines(file_lines, "No files changed."),
+                  *( [f"📊 <i>{html.escape(shortstat)}</i>"] if shortstat else [f"📊 <i>{len(changed_files)} file(s) changed</i>"] ),
+                  "",
+                  "┏ <b>Quick Links</b>",
+                  f"┣ 🔗 <a href=\"{html.escape(commit_url or '-')}\">Open Commit</a>",
+                  f"┗ 🧭 <a href=\"{html.escape(run_url or '-')}\">Open Workflow Run</a>"
+              ]
+          )
+
+          telegram_call("getMe", {})
+          telegram_call("getChat", {"chat_id": chat_id})
+          telegram_call(
+              "sendMessage",
+              {
+                  "chat_id": chat_id,
+                  "text": text,
+                  "parse_mode": "HTML",
+                  "disable_web_page_preview": "true",
+              },
+          )
+          PY
