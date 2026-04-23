@@ -1,0 +1,74 @@
+name: Bantuan Penggunaan
+description: Gunakan template ini jika Anda bingung memakai skrip atau tersangkut di salah satu langkah
+title: "[Help] "
+labels: ["question", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Template ini ditujukan untuk kondisi seperti "bukan bug, tapi saya belum paham cara pakainya" atau "saya mentok di langkah tertentu".
+        Sebelum membuat issue, sebaiknya cek dulu README dan jalankan `Test_Script.cmd`.
+
+  - type: dropdown
+    id: stuck-step
+    attributes:
+      label: Anda tersangkut di bagian mana?
+      options:
+        - Tahap unduh atau ekstrak
+        - Menjalankan Test_Script.cmd
+        - Menjalankan Quick_Activation.cmd
+        - Setelah UAC disetujui tidak ada lanjutannya
+        - Diblokir SmartScreen atau Defender
+        - Skrip berhenti di tengah proses
+        - Aktivasi terlihat berhasil, tetapi IDM masih meminta registrasi
+        - Lainnya
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Versi Windows
+      description: Bisa dilihat dengan menekan Win+R lalu mengetik `winver`.
+      placeholder: "Windows 11 23H2 / Windows 10 22H2 / ..."
+    validations:
+      required: true
+
+  - type: input
+    id: idm-version
+    attributes:
+      label: Versi IDM
+      description: Isi jika IDM sudah terpasang.
+      placeholder: "6.42 build 10 / belum terpasang / tidak tahu"
+
+  - type: textarea
+    id: desc
+    attributes:
+      label: Penjelasan Detail
+      description: Jelaskan apa yang Anda lakukan, apa yang Anda harapkan, dan apa yang benar-benar terjadi.
+      placeholder: |
+        Contoh:
+        Saya menjalankan Quick_Activation.cmd sebagai administrator.
+        Jendela muncul sebentar lalu menutup lagi.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: Yang Sudah Dicoba (Opsional)
+      placeholder: |
+        Contoh:
+        - Sudah menjalankan Test_Script.cmd
+        - Sudah membaca README
+        - Sudah restart komputer lalu coba lagi
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist Sederhana
+      options:
+        - label: Saya sudah mencari di README terlebih dahulu
+          required: true
+        - label: Saya sudah mencoba menjalankan skrip sebagai administrator
+          required: true

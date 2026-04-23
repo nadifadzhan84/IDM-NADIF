@@ -1,0 +1,110 @@
+name: Laporan Bug
+description: Laporkan kegagalan aktivasi, error skrip, tampilan rusak, atau masalah perilaku lain
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Terima kasih sudah melapor. **Sebelum mengirim issue, jalankan dulu `Test_Script.cmd` sebagai administrator** lalu tempelkan hasilnya di bawah agar proses pengecekan lebih cepat.
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Versi Windows
+      description: Jalankan `ver` di CMD, lalu tempel hasilnya di sini.
+      placeholder: "Microsoft Windows [Version 10.0.22631.3593]"
+    validations:
+      required: true
+
+  - type: input
+    id: idm-version
+    attributes:
+      label: Versi IDM
+      description: Buka IDM lalu lihat menu Help > About.
+      placeholder: "6.42 build 10"
+    validations:
+      required: true
+
+  - type: input
+    id: script-version
+    attributes:
+      label: Versi Skrip
+      description: Lihat baris pertama `IAS.cmd`, misalnya `@set iasver=...`
+      placeholder: "1.9.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: Perintah atau jalur yang dijalankan
+      options:
+        - Quick_Activation.cmd
+        - Normal_Activation.cmd
+        - Reset_Activation.cmd
+        - Menu interaktif IAS.cmd
+        - IAS.cmd /frz
+        - IAS.cmd /act
+        - IAS.cmd /res
+        - IAS.cmd + /silent + /log
+        - Lainnya
+    validations:
+      required: true
+
+  - type: textarea
+    id: smoke-output
+    attributes:
+      label: Output Test_Script.cmd
+      description: |
+        Jalankan `Test_Script.cmd` sebagai administrator lalu tempel seluruh outputnya di sini, termasuk kode keluar bila ada.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Langkah Reproduksi
+      description: Tulis langkahnya urut 1, 2, 3 agar mudah diikuti.
+      placeholder: |
+        1. Jalankan Quick_Activation.cmd sebagai administrator
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Hasil yang Diharapkan
+      placeholder: "Contoh: aktivasi beku selesai dan IDM tidak lagi meminta registrasi."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Hasil yang Terjadi
+      description: Sertakan pesan kesalahan, output layar, atau screenshot bila ada.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log Eksekusi (Opsional)
+      description: Jika Anda menjalankan skrip dengan `/log=...`, tempel isi log di sini setelah menyamarkan data sensitif.
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist Sebelum Kirim
+      options:
+        - label: Saya sudah membaca README dan masalah ini belum terjawab di sana
+          required: true
+        - label: Saya sudah menjalankan Test_Script.cmd sebagai administrator dan menyertakan hasilnya
+          required: true
+        - label: Saya tidak menyertakan kata sandi, lisensi, atau data sensitif lain
+          required: true

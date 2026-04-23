@@ -1,0 +1,5 @@
+# Petunjuk Penggunaan
+
+1. Ekstrak file ZIP yang sudah diunduh.
+2. Jalankan Quick_Activation.cmd (atau Normal_Activation.cmd) sebagai Administrator.
+3. Ikuti petunjuk yang muncul di jendela konsol.

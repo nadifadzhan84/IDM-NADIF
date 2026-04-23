@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Baca README dulu
+    url: https://github.com/tytsxai/IDM-Activation-Script-Chinese/blob/main/README.md
+    about: Sebagian besar masalah umum seperti izin administrator, jaringan, PowerShell, dan IDM belum terpasang biasanya sudah dijelaskan di README.
+  - name: Lihat catatan perubahan
+    url: https://github.com/tytsxai/IDM-Activation-Script-Chinese/blob/main/CHANGELOG.md
+    about: Periksa CHANGELOG untuk melihat apakah masalah Anda sudah tercatat pada versi terbaru.
+  - name: Laporkan kerentanan keamanan
+    url: https://github.com/tytsxai/IDM-Activation-Script-Chinese/security/advisories/new
+    about: Gunakan jalur privat GitHub Security Advisory untuk masalah keamanan. Jangan kirim lewat issue publik.
