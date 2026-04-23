@@ -55,13 +55,13 @@ Pilih salah satu mode di bawah ini:
 
 ### 3. Antarmuka Menu
 ```text
-┌─────────────────────────────────────┐
-│   MENU UTAMA AKTIVASI IDM           │
-├─────────────────────────────────────┤
-│  [1] Aktivasi (Bekukan) ⭐ Disarankan│
-│  [2] Aktivasi Normal                │
-│  [3] Reset Masa Percobaan           │
-│  [4] Unduh IDM Resmi                │
-│  [5] Bantuan                        │
-│  [0] Keluar                         │
-└─────────────────────────────────────┘
+┌───────────────────────────────────────────┐
+│          MENU UTAMA AKTIVASI IDM          │
+├───────────────────────────────────────────┤
+│  [1] Aktivasi (Bekukan) ⭐ Disarankan     │
+│  [2] Aktivasi Normal                      │
+│  [3] Reset Masa Percobaan                 │
+│  [4] Unduh IDM Resmi                      │
+│  [5] Bantuan                              │
+│  [0] Keluar                               │
+└───────────────────────────────────────────┘
