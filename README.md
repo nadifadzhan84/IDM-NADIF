@@ -35,7 +35,7 @@
 
 | Versi | Tautan Unduh | Verifikasi (SHA256) |
 | :--- | :--- | :--- |
-| **Terbaru (v1.9.5)** | [Download .zip](https://github.com/nadifadzhan84/IDM-NADIF/archive/refs/heads/main.zip) | `Lihat rilis GitHub` |
+| **Terbaru (v1.9.5)** | [Download .zip](https://github.com/nadifadzhan84/IDM-NADIF/blob/main/release/IDM-Activation-Script-v1.9.5.zip) | [Cek .sha256](https://github.com/nadifadzhan84/IDM-NADIF/blob/main/release/IDM-Activation-Script-v1.9.5.zip.sha256) |
 | **Repositori** | [GitHub Nadif Rizky](https://github.com/nadifadzhan84/IDM-NADIF) | - |
 
 ---
