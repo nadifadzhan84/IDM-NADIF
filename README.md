@@ -14,7 +14,7 @@
 **Satu klik untuk aktivasi Internet Download Manager (IDM) dengan antarmuka yang bersih dan efisien.**
 *Mendukung pembekuan masa percobaan, registrasi acak, dan reset instan.*
 
-[📥 Unduh Sekarang](https://github.com/nadifadzhan84/IDM-NADIF/releases/latest) • [📖 Panduan](#-cara-penggunaan) • [❓ FAQ](#-pertanyaan-yang-sering-diajukan)
+[📖 Panduan](#-cara-penggunaan) • [❓ FAQ](#-pertanyaan-yang-sering-diajukan)
 
 </div>
 
