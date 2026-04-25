@@ -1,4 +1,4 @@
-@set iasver=1.9.5
+@set iasver=1.9.6
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -529,10 +529,15 @@ call :delete_queue
 call :ui_step "04" "Menambahkan baseline key"
 call :add_key
 
+call :ui_step "05" "Memblok server validasi IDM pada hosts file"
+call :block_idm_hosts
+
 echo:
 call :ui_line
 echo:
 call :ui_done "RESET ACTIVATION SELESAI"
+call :ui_info "Warning serial palsu tetap diblok, reset aman dipakai"
+
 call :ui_info "Anda dapat kembali ke dashboard untuk mode lain"
 
 goto done
@@ -613,7 +618,7 @@ call :ui_banner "FREEZE ACTIVATION" "DIGITAL SHIELD MODE"
 call :ui_info "Mode ini paling stabil dan tidak menulis serial acak"
 ) else (
 call :ui_banner "NORMAL ACTIVATION" "DIGITAL LICENSE MODE"
-call :ui_info "Mode ini dapat memunculkan warning serial palsu"
+call :ui_info "Warning serial palsu otomatis diblok via hosts file"
 )
 echo:
 
@@ -621,7 +626,7 @@ if %frz%==0 if %_unattended%==0 (
 echo:
 call :ui_line
 echo:
-call :ui_alert "Normal activation dapat menampilkan warning serial"
+call :ui_info "Warning serial palsu otomatis diblok via hosts file"
 call :ui_info "Gunakan freeze activation jika ingin hasil paling stabil"
 echo:
 call :ui_pick "1" "KEMBALI KE MENU"
@@ -634,7 +639,7 @@ cls
 chcp 936 >nul 2>&1
 title  Skrip Aktivasi IDM %iasver% - By Nadif Rizky
 call :ui_banner "NORMAL ACTIVATION" "DIGITAL LICENSE MODE"
-call :ui_info "Mode ini dapat memunculkan warning serial palsu"
+call :ui_info "Warning serial palsu otomatis diblok via hosts file"
 echo:
 )
 
@@ -682,6 +687,7 @@ if not %HKCUsync%==1 reg export %CLSID2% "%SystemRoot%\Temp\_Backup_HKU-%_sid%_C
 
 call :delete_queue
 call :add_key
+call :block_idm_hosts
 
 %psc% "$sid = '%_sid%'; $HKCUsync = %HKCUsync%; $lockKey = 1; $deleteKey = $null; $toggle = 1; $f=[io.file]::ReadAllText('!_batp!') -split ':regscan\:.*';iex ($f[1])"
 
@@ -704,7 +710,7 @@ echo %line%
 echo:
 if %frz%==0 (
 call :ui_done "NORMAL ACTIVATION SELESAI"
-call :ui_info "Jika muncul warning serial gunakan freeze activation"
+call :ui_info "Warning serial palsu diblok via hosts, aman dipakai harian"
 ) else (
 call :ui_done "FREEZE ACTIVATION SELESAI"
 call :ui_info "Jika IDM masih meminta registrasi instal ulang IDM"
@@ -845,6 +851,53 @@ set "reg=%reg:"=%"
 call :_color2 %Red% "Gagal - !reg!"
 call :set_exit 1 "Gagal menambahkan - !reg!"
 )
+exit /b
+
+::========================================================================================================================================
+
+:block_idm_hosts
+
+::  Memblok domain validasi IDM pada hosts file agar warning "fake serial"
+::  tidak muncul lagi setelah 3-5 kali unduhan. Entri ditandai dengan marker
+::  unik sehingga idempoten: bisa dijalankan berkali-kali tanpa duplikasi.
+
+echo:
+call :ui_info "Memblok server validasi IDM via hosts file"
+echo:
+call :log "Memulai blok hosts IDM (bypass warning serial palsu)"
+
+set "hosts_file=%SystemRoot%\System32\drivers\etc\hosts"
+set "ias_marker=# IAS-NADIF-BLOCK"
+
+if not exist "%hosts_file%" (
+call :ui_alert "Hosts file tidak ditemukan, blok dilewati"
+call :log "Hosts file tidak ditemukan di %hosts_file%"
+exit /b
+)
+
+set "_hosts_time=%_time%"
+if not defined _hosts_time for /f %%a in ('%psc% "(Get-Date).ToString('yyyyMMdd-HHmmssfff')"') do set "_hosts_time=%%a"
+
+set "hosts_backup=%SystemRoot%\Temp\_Backup_hosts_%_hosts_time%"
+copy /y "%hosts_file%" "%hosts_backup%" %nul%
+if exist "%hosts_backup%" call :log "Hosts dicadangkan ke %hosts_backup%"
+
+::  Hapus marker lama dan tulis ulang entri agar idempoten
+%psc% "try { $p='%hosts_file%'; $m='%ias_marker%'; $lines = @(Get-Content -LiteralPath $p -ErrorAction Stop); $kept = $lines | Where-Object { $_ -notmatch [regex]::Escape($m) }; while ($kept.Count -gt 0 -and [string]::IsNullOrWhiteSpace($kept[-1])) { $kept = $kept[0..($kept.Count-2)] }; $domains = @('registeridm.com','www.registeridm.com','secure.registeridm.com','tonec.com','www.tonec.com','secure.tonec.com','mirror.internetdownloadmanager.com','mirror2.internetdownloadmanager.com','mirror3.internetdownloadmanager.com'); $block = @(''); $block += ($m + ' START'); foreach ($d in $domains) { $block += ('0.0.0.0 ' + $d + ' ' + $m) }; $block += ($m + ' END'); $out = @($kept) + $block; [System.IO.File]::WriteAllLines($p, $out, [System.Text.Encoding]::ASCII); exit 0 } catch { Write-Host $_.Exception.Message; exit 1 }"
+
+if "%errorlevel%"=="0" (
+call :log "Domain validasi IDM berhasil diblok di hosts"
+call :_color %Green% "Blok hosts IDM aktif - warning serial palsu dibungkam"
+) else (
+call :_color %Red% "Gagal memperbarui hosts file"
+call :log "Gagal memperbarui hosts file"
+call :set_exit 1 "Gagal memperbarui hosts file"
+exit /b
+)
+
+::  Refresh cache DNS agar perubahan segera berlaku
+ipconfig /flushdns %nul%
+
 exit /b
 
 ::========================================================================================================================================
