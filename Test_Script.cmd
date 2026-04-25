@@ -12,6 +12,7 @@ set "ERR_IAS=64"
 set "ERR_WMI=128"
 set "ERR_IDM_PATH=256"
 set "ERR_DIR_PERM=512"
+set "ERR_HOSTS_BYPASS=1024"
 
 set /a "issues=0"
 set "firstFail="
@@ -133,6 +134,42 @@ if exist "!writeTest!" (
     echo [X] Folder skrip tidak bisa ditulis: %~dp0
     set /a issues^|=ERR_DIR_PERM
     if not defined firstFail set "firstFail=Folder skrip tidak bisa ditulis ^| Pindahkan folder ini ke lokasi yang bisa ditulis, jangan di Program Files."
+)
+
+::  Verifikasi bypass popup fake-serial IDM pada hosts file
+::  Hanya menandai OK apabila marker # IAS-NADIF-BLOCK START/END hadir dan
+::  minimal registeridm.com serta tonec.com terblok. Tes ini tidak gagal bila
+::  IAS.cmd belum pernah dijalankan; ia hanya memberi catatan informatif.
+
+set "hostsFile=%SystemRoot%\System32\drivers\etc\hosts"
+set "hasStart="
+set "hasEnd="
+set "hasRegisterIdm="
+set "hasTonec="
+set /a "hostsScore=0"
+if exist "!hostsFile!" (
+    findstr /c:"# IAS-NADIF-BLOCK START" "!hostsFile!" >nul 2>&1 && set "hasStart=1"
+    findstr /c:"# IAS-NADIF-BLOCK END"   "!hostsFile!" >nul 2>&1 && set "hasEnd=1"
+    findstr /l /c:"0.0.0.0 registeridm.com" "!hostsFile!" >nul 2>&1 && set "hasRegisterIdm=1"
+    findstr /l /c:"0.0.0.0 tonec.com"        "!hostsFile!" >nul 2>&1 && set "hasTonec=1"
+    if defined hasStart        set /a "hostsScore+=1"
+    if defined hasEnd          set /a "hostsScore+=1"
+    if defined hasRegisterIdm  set /a "hostsScore+=1"
+    if defined hasTonec        set /a "hostsScore+=1"
+    if !hostsScore! EQU 4 (
+        echo [OK] Bypass popup fake-serial IDM aktif di hosts file
+    ) else if defined hasStart (
+        echo [X] Marker IAS-NADIF-BLOCK ditemukan sebagian, blok hosts tidak lengkap
+        set /a issues^|=ERR_HOSTS_BYPASS
+        if not defined firstFail set "firstFail=Blok hosts IAS-NADIF-BLOCK tidak lengkap ^| Jalankan Quick_Activation.cmd atau Normal_Activation.cmd sekali lagi sebagai administrator agar blok ditulis ulang."
+    ) else (
+        echo [!] Bypass popup fake-serial belum terpasang ^(hosts belum pernah di-IAS^)
+        echo     Jalankan Quick_Activation.cmd/Normal_Activation.cmd sebagai administrator untuk memasang bypass.
+    )
+) else (
+    echo [X] Hosts file tidak ditemukan di !hostsFile!
+    set /a issues^|=ERR_HOSTS_BYPASS
+    if not defined firstFail set "firstFail=Hosts file tidak ditemukan ^| Periksa instalasi Windows, bypass popup fake-serial membutuhkan file ini."
 )
 
 echo:
