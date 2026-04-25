@@ -8,6 +8,20 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.6 - 2026-04-25
+
+### Baru
+- `IAS.cmd`: subrutin baru `:block_idm_hosts` yang otomatis menulis entri bypass ke `%SystemRoot%\System32\drivers\etc\hosts` agar popup "Internet Download Manager has been registered with a fake Serial Number" tidak muncul lagi setelah 3-5 unduhan. Domain yang diblok: `registeridm.com`, `www.registeridm.com`, `secure.registeridm.com`, `tonec.com`, `www.tonec.com`, `secure.tonec.com`, serta mirror `mirror.internetdownloadmanager.com`, `mirror2.internetdownloadmanager.com`, `mirror3.internetdownloadmanager.com`.
+- Blok hosts dipasang otomatis pada alur `Normal Activation`, `Freeze Activation`, dan `Reset Activation` sehingga efeknya tetap aktif pada seluruh skenario pemakaian.
+- Entri hosts diberi marker unik `# IAS-NADIF-BLOCK` sehingga idempoten: pemanggilan ulang tidak menduplikasi baris. Sebelum menulis ulang, hosts file dicadangkan ke `%SystemRoot%\Temp\_Backup_hosts_<timestamp>` dan cache DNS disegarkan via `ipconfig /flushdns`.
+- Domain inti `internetdownloadmanager.com` dibiarkan terbuka agar uji unduhan internal `download_files` tetap berjalan.
+
+### Perubahan
+- Pesan UI pada `NORMAL ACTIVATION` diperhalus: peringatan "warning serial palsu" diganti menjadi konfirmasi bahwa warning tersebut sudah diblok via hosts file.
+- Pesan akhir `DONE` pada alur normal dan reset menambahkan konfirmasi bypass aktif.
+
+---
+
 ## v1.9.5 - 2026-04-21
 
 ### Baru
