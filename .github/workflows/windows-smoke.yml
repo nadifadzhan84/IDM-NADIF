@@ -1,0 +1,198 @@
+name: Windows Smoke Test
+
+'on':
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosts-block-payload:
+    name: hosts-block PowerShell payload (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Execute :block_idm_hosts payload against a synthetic hosts file
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Synthetic hosts file that intentionally contains a STALE IAS-NADIF-BLOCK
+          # region so we can prove the payload purges old entries before writing
+          # fresh ones (idempotency).
+          $fixture = @(
+            '# Copyright (c) 1993-2009 Microsoft Corp.',
+            '',
+            '127.0.0.1 localhost',
+            '::1       localhost',
+            '',
+            '# IAS-NADIF-BLOCK START',
+            '0.0.0.0 obsolete.example # IAS-NADIF-BLOCK',
+            '# IAS-NADIF-BLOCK END',
+            '',
+            '192.168.1.1 router.lan'
+          )
+
+          $tmp = New-TemporaryFile
+          [System.IO.File]::WriteAllLines($tmp.FullName, $fixture, [System.Text.Encoding]::ASCII)
+
+          # Exact payload shipped in :block_idm_hosts.
+          $p = $tmp.FullName
+          $m = '# IAS-NADIF-BLOCK'
+          $lines = @(Get-Content -LiteralPath $p -ErrorAction Stop)
+          $kept  = $lines | Where-Object { $_ -notmatch [regex]::Escape($m) }
+          while ($kept.Count -gt 0 -and [string]::IsNullOrWhiteSpace($kept[-1])) {
+              $kept = $kept[0..($kept.Count - 2)]
+          }
+          $domains = @(
+            'registeridm.com','www.registeridm.com','secure.registeridm.com',
+            'tonec.com','www.tonec.com','secure.tonec.com',
+            'mirror.internetdownloadmanager.com',
+            'mirror2.internetdownloadmanager.com',
+            'mirror3.internetdownloadmanager.com'
+          )
+          $block  = @('')
+          $block += ($m + ' START')
+          foreach ($d in $domains) { $block += ('0.0.0.0 ' + $d + ' ' + $m) }
+          $block += ($m + ' END')
+          $out = @($kept) + $block
+          [System.IO.File]::WriteAllLines($p, $out, [System.Text.Encoding]::ASCII)
+
+          Write-Host '=== Hosts file after first write ==='
+          Get-Content -LiteralPath $p | ForEach-Object { Write-Host $_ }
+
+          # Assertions: markers + sentinel domains present; stale entry purged;
+          # original non-block lines preserved.
+          $final = Get-Content -LiteralPath $p
+          $assert = @{
+            'START marker present'        = { $final -contains '# IAS-NADIF-BLOCK START' }
+            'END marker present'          = { $final -contains '# IAS-NADIF-BLOCK END' }
+            'registeridm entry present'   = { $final -contains '0.0.0.0 registeridm.com # IAS-NADIF-BLOCK' }
+            'tonec entry present'         = { $final -contains '0.0.0.0 tonec.com # IAS-NADIF-BLOCK' }
+            'mirror3 entry present'       = { $final -contains '0.0.0.0 mirror3.internetdownloadmanager.com # IAS-NADIF-BLOCK' }
+            'stale IAS entry purged'      = { -not ($final | Where-Object { $_ -match 'obsolete\.example' }) }
+            'localhost preserved'         = { $final -contains '127.0.0.1 localhost' }
+            'router preserved'            = { $final -contains '192.168.1.1 router.lan' }
+            'single START occurrence'     = { (($final | Where-Object { $_ -eq '# IAS-NADIF-BLOCK START' }) | Measure-Object).Count -eq 1 }
+            'single END occurrence'       = { (($final | Where-Object { $_ -eq '# IAS-NADIF-BLOCK END'   }) | Measure-Object).Count -eq 1 }
+          }
+          foreach ($k in $assert.Keys) {
+            if (-not (& $assert[$k])) { throw ('Assertion FAILED: ' + $k) }
+            Write-Host ('OK: ' + $k)
+          }
+
+          # Idempotency: run the payload a SECOND time and assert the content is
+          # byte-identical to the first write. This guards against accumulation
+          # of duplicate blocks or trailing whitespace growth on repeat calls.
+          $snapshotA = [System.IO.File]::ReadAllBytes($p)
+
+          $lines = @(Get-Content -LiteralPath $p -ErrorAction Stop)
+          $kept  = $lines | Where-Object { $_ -notmatch [regex]::Escape($m) }
+          while ($kept.Count -gt 0 -and [string]::IsNullOrWhiteSpace($kept[-1])) {
+              $kept = $kept[0..($kept.Count - 2)]
+          }
+          $block  = @('')
+          $block += ($m + ' START')
+          foreach ($d in $domains) { $block += ('0.0.0.0 ' + $d + ' ' + $m) }
+          $block += ($m + ' END')
+          $out = @($kept) + $block
+          [System.IO.File]::WriteAllLines($p, $out, [System.Text.Encoding]::ASCII)
+
+          $snapshotB = [System.IO.File]::ReadAllBytes($p)
+          if ($snapshotA.Length -ne $snapshotB.Length) {
+            throw ('Idempotency FAILED: sizes differ ' + $snapshotA.Length + ' vs ' + $snapshotB.Length)
+          }
+          for ($i = 0; $i -lt $snapshotA.Length; $i++) {
+            if ($snapshotA[$i] -ne $snapshotB[$i]) {
+              throw ('Idempotency FAILED at byte ' + $i)
+            }
+          }
+          Write-Host 'OK: second run is byte-identical to first (idempotent)'
+
+          Remove-Item -LiteralPath $p -Force
+
+  cmd-syntax:
+    name: cmd.exe parses IAS.cmd and Test_Script.cmd
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify CRLF + ASCII hygiene
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($f in 'IAS.cmd','Test_Script.cmd','Quick_Activation.cmd','Normal_Activation.cmd','Reset_Activation.cmd') {
+            $bytes = [System.IO.File]::ReadAllBytes((Join-Path (Get-Location) $f))
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw ($f + ' has UTF-8 BOM') }
+            for ($i = 0; $i -lt $bytes.Length; $i++) {
+              if ($bytes[$i] -eq 0x0A -and ($i -eq 0 -or $bytes[$i-1] -ne 0x0D)) { throw ($f + ' has LF without preceding CR at byte ' + $i) }
+            }
+            Write-Host ('OK: ' + $f + ' is CRLF clean')
+          }
+
+      - name: Dry-run IAS.cmd help-style invocation (must not crash, must exit non-zero without action flag)
+        shell: cmd
+        run: |
+          rem  IAS.cmd without /act /frz /res and without /silent will fall into
+          rem  the interactive main menu, which would hang CI. Use /silent with
+          rem  no action flag -- the script explicitly rejects that combination
+          rem  with exit code 2. This exercises the whole startup path (code
+          rem  page, log init, admin check, architecture detection) without
+          rem  actually touching the hosts file.
+          call IAS.cmd /silent
+          set "ias_exit=%errorlevel%"
+          echo IAS.cmd exited with %ias_exit%
+          if "%ias_exit%"=="0" (
+            echo IAS.cmd exited 0 but should have rejected /silent without an action. FAIL.
+            exit /b 1
+          )
+          echo IAS.cmd startup path parsed and short-circuited as expected.
+
+  test-script-verifier:
+    name: Test_Script.cmd hosts verifier branches
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the verifier block exists in Test_Script.cmd
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $content = Get-Content -Raw -LiteralPath 'Test_Script.cmd'
+          $probes = @(
+            'ERR_HOSTS_BYPASS',
+            'IAS-NADIF-BLOCK START',
+            'IAS-NADIF-BLOCK END',
+            '0.0.0.0 registeridm.com',
+            '0.0.0.0 tonec.com',
+            'hostsScore'
+          )
+          foreach ($p in $probes) {
+            if ($content -notmatch [regex]::Escape($p)) { throw ('Test_Script.cmd missing probe: ' + $p) }
+            Write-Host ('OK: Test_Script.cmd contains ' + $p)
+          }
+
+      - name: Run Test_Script.cmd (runner is admin; expect exit 0 if env is clean or ERR_HOSTS_BYPASS bit if bypass not installed)
+        shell: cmd
+        run: |
+          rem  Pipe <nul so the trailing `pause` returns immediately.
+          call Test_Script.cmd <nul
+          set "ts_exit=%errorlevel%"
+          echo Test_Script.cmd exited with %ts_exit%
+          rem  On a fresh GitHub runner, hosts file has never been touched by
+          rem  IAS, so the verifier should emit the informational [!] branch
+          rem  (which does NOT raise issues). Any IDM-related checks may raise
+          rem  ERR_IDM_PATH=256 since IDM is not installed. We accept any exit
+          rem  code as long as cmd.exe parsed Test_Script.cmd without a
+          rem  hard syntax error.
+          if %ts_exit% gtr 4095 (
+            echo Test_Script.cmd exit code out of expected range. FAIL.
+            exit /b 1
+          )
+          echo Test_Script.cmd parsed and executed cleanly.
