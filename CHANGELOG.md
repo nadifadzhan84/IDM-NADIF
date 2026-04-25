@@ -8,6 +8,14 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.7 - 2026-04-25
+
+### Baru
+- `Test_Script.cmd`: pemeriksaan baru "bypass popup fake-serial". Verifier membaca `%SystemRoot%\System32\drivers\etc\hosts`, memastikan marker `# IAS-NADIF-BLOCK START`/`END` hadir dan entri `0.0.0.0 registeridm.com` serta `0.0.0.0 tonec.com` sudah terpasang. Bit keluar baru `ERR_HOSTS_BYPASS=1024` ditambahkan agar otomatisasi bisa membedakan "bypass belum terpasang" dari kegagalan lain.
+- Apabila tidak ada marker sama sekali, pemeriksaan hanya memberi catatan informatif tanpa menandai gagal, sehingga user yang belum menjalankan `Quick_Activation.cmd` / `Normal_Activation.cmd` tidak kaget dengan kode keluar non-zero.
+
+---
+
 ## v1.9.6 - 2026-04-25
 
 ### Baru
