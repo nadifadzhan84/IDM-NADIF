@@ -27,5 +27,9 @@ set "ret=%errorlevel%"
 if not "%ret%"=="0" (
     echo [PETUNJUK] IAS.cmd mengembalikan kode %ret%. Lihat output layar atau jalankan dulu "Test_Script.cmd" untuk memeriksa lingkungan.
 )
-echo %* | find /i "/silent" >nul || pause
+::  Pakai `<con` agar pause membaca dari console asli, bukan stdin yang
+::  mungkin ter-redirect oleh `Start-Process -Verb RunAs` di langkah elevasi
+::  di atas. Kalau tidak, `pause` exit instan dan jendela menutup sendiri
+::  walaupun aktivasi sudah sukses.
+echo %* | find /i "/silent" >nul || pause <con
 endlocal & exit /b %ret%

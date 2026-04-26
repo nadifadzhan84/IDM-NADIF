@@ -1,4 +1,4 @@
-@set iasver=1.9.10
+@set iasver=1.9.11
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -734,7 +734,21 @@ echo:
 call :log "Alur selesai, kode keluar %exit_code%"
 if %_unattended%==1 (
 if %_silent%==1 exit /b %exit_code%
-timeout /t 2 & exit /b %exit_code%
+::  Sebelumnya pakai `timeout /t 2 & exit /b` yang exit otomatis 2 detik
+::  setelah aktivasi. Dalam praktik konsol-elevated yang dilahirkan via
+::  `Start-Process -Verb RunAs` di Normal_Activation.cmd kadang punya
+::  stdin yang sudah ter-redirect (bukan handle CON yang sebenarnya),
+::  membuat `timeout` exit dengan "Input redirection is not supported"
+::  dan langsung lanjut ke `exit /b`. Akibatnya konsol tertutup tanpa
+::  user sempat membaca pesan sukses. Sekarang kita tampilkan banner
+::  konfirmasi lalu menunggu keypress eksplisit dengan `<con` redirect
+::  supaya selalu baca dari device console asli, bukan stdin yang
+::  mungkin sudah ter-redirect.
+echo:
+call :ui_done "AKTIVASI SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
+echo:
+pause >nul <con
+exit /b %exit_code%
 )
 
 if defined terminal (
@@ -751,7 +765,13 @@ goto MainMenu
 call :log "Alur selesai, kode keluar %exit_code%"
 if %_unattended%==1 (
 if %_silent%==1 exit /b %exit_code%
-timeout /t 2 & exit /b %exit_code%
+::  Lihat catatan di :done - pakai pause <con yang robust terhadap
+::  stdin yang sudah ter-redirect oleh elevation Start-Process.
+echo:
+call :ui_done "SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
+echo:
+pause >nul <con
+exit /b %exit_code%
 )
 
 if defined terminal (

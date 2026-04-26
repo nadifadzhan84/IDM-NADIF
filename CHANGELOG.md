@@ -8,6 +8,19 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.11 - 2026-04-26
+
+### Perbaikan
+- **Konsol IAS tidak lagi menutup sendiri SETELAH aktivasi sukses.** Pada `Normal_Activation.cmd` / `Quick_Activation.cmd` / `Reset_Activation.cmd`, langkah elevasi `powershell ... Start-Process -Verb RunAs` melahirkan cmd dengan stdin yang sudah ter-redirect (bukan handle CON yang sebenarnya). Akibatnya `timeout /t 2` di label `:done` IAS.cmd dan `pause` di wrapper exit instan dengan `"Input redirection is not supported"` — jendela tertutup walau aktivasi sudah berhasil dan IDM sudah teregister.
+  - `:done` dan `:done2` di `IAS.cmd` mengganti `timeout /t 2 & exit /b` dengan banner sukses + `pause >nul <con`. Redirect `<con` membaca langsung dari device console asli sehingga pause selalu menunggu keypress nyata, tidak terpengaruh stdin yang ter-redirect.
+  - `Normal_Activation.cmd`, `Quick_Activation.cmd`, dan `Reset_Activation.cmd` mengganti `pause` di akhir flow dengan `pause <con` dengan alasan yang sama.
+
+### Kompatibilitas
+- Mode `/silent` tetap auto-exit tanpa pause (perilaku tidak berubah).
+- Mode interaktif (menjalankan `IAS.cmd` tanpa flag) tetap memakai `pause` dan `choice` standar — perilaku tidak berubah.
+
+---
+
 ## v1.9.10 - 2026-04-26
 
 ### Perbaikan

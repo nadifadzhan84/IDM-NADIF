@@ -123,6 +123,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: IAS.cmd uses pause <con in :done / :done2 unattended branch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          # Sebelumnya `:done` pakai `timeout /t 2 & exit /b` yang gampang
+          # gagal kalau stdin ter-redirect oleh elevasi `Start-Process -Verb
+          # RunAs`. Sekarang harus pakai `pause >nul <con` supaya selalu
+          # baca dari device console.
+          if ($c -notmatch 'pause >nul <con') {
+            throw 'IAS.cmd missing `pause >nul <con` — :done unattended branch must use it'
+          }
+          if ($c -match ':done\s*\r?\n[\s\S]*?_unattended.*?timeout /t 2 & exit /b') {
+            throw 'IAS.cmd :done still uses `timeout /t 2 & exit /b` in unattended branch'
+          }
+          Write-Host 'OK: IAS.cmd :done uses pause >nul <con'
+
+      - name: Wrapper scripts use pause <con (Normal/Quick/Reset_Activation.cmd)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($f in 'Normal_Activation.cmd','Quick_Activation.cmd','Reset_Activation.cmd') {
+            $c = Get-Content -Raw -LiteralPath $f
+            if ($c -notmatch 'pause <con') {
+              throw ($f + ' must use `pause <con` so the window does not close instantly when elevation redirects stdin')
+            }
+            Write-Host ('OK: ' + $f + ' uses pause <con')
+          }
+
       - name: Verify CRLF + ASCII hygiene
         shell: pwsh
         run: |
