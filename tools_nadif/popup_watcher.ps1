@@ -78,12 +78,20 @@ public static class IASPopup {
         return sb.ToString();
     }
 
+    // Phrases yang hanya muncul di dialog nag IDM. Sengaja TIDAK menyertakan
+    // "Lifetime license" karena teks itu juga muncul di dialog informasi
+    // "This product is licensed to ... This is a lifetime license" yang benign
+    // dan tidak boleh ditutup paksa.
     private static readonly string[] Triggers = new string[] {
         "fake Serial",
         "Serial Number has been blocked",
         "days left to use Internet Download Manager",
         "trial period has expired",
-        "trial version has expired"
+        "trial version has expired",
+        "0 days left",
+        "You may buy IDM to continue using it",
+        "PLEASE ENTER YOUR SERIAL NUMBER",
+        "ALREADY PURCHASED"
     };
 
     private static bool HasFakeSerialChild(IntPtr hWnd) {
@@ -133,6 +141,45 @@ try {
     exit 1
 }
 
+# Real-time trial-counter wipe untuk menutup celah race antara IDM membaca
+# counter trial dan tools_nadif\trial_reset.ps1 menjalankan reset terjadwal.
+# Tiap iterasi (~750 ms) kita hapus nilai trial-counter dari
+# HKCU\Software\DownloadManager. IDM 6.42 akan otomatis menulis ulang
+# counter "fresh trial" sehingga popup "0 days left" / "trial expired" tidak
+# pernah punya peluang untuk muncul. Serial / FName / LName / Email TIDAK
+# pernah disentuh sehingga registrasi normal tetap utuh.
+$idmTrialKey  = 'HKCU:\Software\DownloadManager'
+$idmTrialKeys = @(
+    'tvfrdt',       # trial start date (binary)
+    'radxcnt',      # radix count
+    'ptrk_scdt',    # encrypted scheduled check date
+    'LstCheck',     # last remote check
+    'LastCheckQU',  # last quick-update check
+    'scansk',       # scan key used during trial validation
+    'FromVersion',  # trial upgrade tracker
+    'toV'           # trial upgrade tracker
+)
+
+function Reset-TrialCounters {
+    $removed = 0
+    if (Test-Path -LiteralPath $idmTrialKey) {
+        foreach ($v in $idmTrialKeys) {
+            try {
+                $null = Get-ItemProperty -LiteralPath $idmTrialKey -Name $v -ErrorAction Stop
+                Remove-ItemProperty -LiteralPath $idmTrialKey -Name $v -Force -ErrorAction Stop
+                $removed++
+            } catch {
+                # nilai memang tidak ada, abaikan saja
+            }
+        }
+    }
+    return $removed
+}
+
+$resetLogEvery   = 80   # log ringkasan tiap ~60 detik (80 * 750 ms)
+$resetLogCounter = 0
+$totalResets     = 0
+
 while ($true) {
     try {
         if (Test-Path -LiteralPath $stopFlag) {
@@ -140,9 +187,24 @@ while ($true) {
             try { Remove-Item -LiteralPath $stopFlag -Force -ErrorAction SilentlyContinue } catch { }
             exit 0
         }
+
+        # Lapis 1: bersihkan counter trial supaya popup tidak pernah ter-trigger.
+        $resetCount = Reset-TrialCounters
+        $totalResets += $resetCount
+
+        # Lapis 2: tutup popup nag yang sudah terlanjur muncul.
         $closed = [IASPopup]::DismissAll()
         if ($closed -gt 0) {
-            Write-WatcherLog "Dismissed $closed fake-serial popup(s)"
+            Write-WatcherLog "Dismissed $closed nag popup(s)"
+        }
+
+        $resetLogCounter++
+        if ($resetLogCounter -ge $resetLogEvery) {
+            if ($totalResets -gt 0) {
+                Write-WatcherLog "Trial-counter wipe aktif, $totalResets nilai dihapus dalam ~60 detik terakhir"
+            }
+            $resetLogCounter = 0
+            $totalResets = 0
         }
     } catch {
         Write-WatcherLog "loop error: $($_.Exception.Message)"

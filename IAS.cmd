@@ -1,4 +1,4 @@
-@set iasver=1.9.9
+@set iasver=1.9.10
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -829,7 +829,11 @@ start "" /B "%IDMan%" /n /d "%link%" /p "%SystemRoot%\Temp" /f temp.png
 
 :check_file
 
-timeout /t 1 %nul1%
+::  Pakai ping alih-alih timeout supaya tidak gagal ketika stdin konsol
+::  sudah dikonsumsi oleh proses anak (mis. popup_watcher background) yang
+::  membuat "timeout" mencetak "Input redirection is not supported" lalu
+::  loop berlangsung tanpa delay. ping 127.0.0.1 -n 2 = jeda ~1 detik.
+ping 127.0.0.1 -n 2 %nul1%
 set /a attempt+=1
 if exist "%file%" (set _fileexist=1&call :log "Unduh berhasil: %current_link%"&exit /b)
 if %attempt% GEQ 20 (call :log "Unduh gagal: %current_link%"&exit /b)
@@ -912,15 +916,19 @@ exit /b
 
 :install_trial_resetter
 
-::  Pasang resetter trial-counter IDM sebagai Scheduled Task jam-an.
-::  Task menjalankan tools_nadif\trial_reset.ps1 tiap 1 jam untuk menghapus
+::  Pasang resetter trial-counter IDM sebagai Scheduled Task tiap 5 menit.
+::  Task menjalankan tools_nadif\trial_reset.ps1 tiap 5 menit untuk menghapus
 ::  nilai tvfrdt / radxcnt / ptrk_scdt / LstCheck / LastCheckQU / scansk dari
 ::  HKCU\Software\DownloadManager sehingga IDM tidak bisa meng-advance counter
 ::  trial ke 0 ("You have 0 days left to use Internet Download Manager").
+::  Sebelumnya pemicu adalah hourly tetapi praktiknya popup "0 days left"
+::  sempat muncul beberapa menit setelah login sebelum reset berjalan, jadi
+::  interval dipersingkat. Lapisan kedua: popup_watcher.ps1 juga membersihkan
+::  counter di hot loop tiap 750 ms supaya popup tidak pernah sempat muncul.
 ::  Serial/FName/LName/Email tidak pernah disentuh.
 
 echo:
-call :ui_info "Memasang resetter trial IDM (scheduled task)"
+call :ui_info "Memasang resetter trial IDM (scheduled task tiap 5 menit)"
 echo:
 call :log "Memulai install trial resetter"
 
@@ -947,14 +955,14 @@ exit /b
 schtasks /end /tn "%tr_task%" %nul%
 schtasks /delete /tn "%tr_task%" /f %nul%
 
-::  Daftarkan scheduled task jam-an untuk user sekarang. rl limited supaya
-::  tidak meminta UAC tiap kali trigger dan dijalankan di session user.
+::  Daftarkan scheduled task setiap 5 menit untuk user sekarang. rl limited
+::  supaya tidak meminta UAC tiap kali trigger dan dijalankan di session user.
 set "tr_action=powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%tr_ps%\""
-schtasks /create /tn "%tr_task%" /sc hourly /mo 1 /ru "%USERDOMAIN%\%USERNAME%" /rl limited /it /f /tr "%tr_action%" %nul%
+schtasks /create /tn "%tr_task%" /sc minute /mo 5 /ru "%USERDOMAIN%\%USERNAME%" /rl limited /it /f /tr "%tr_action%" %nul%
 
 if "%errorlevel%"=="0" (
-call :log "Scheduled task %tr_task% terpasang"
-call :_color %Green% "Resetter trial IDM (hourly) terpasang"
+call :log "Scheduled task %tr_task% terpasang (every 5 minutes)"
+call :_color %Green% "Resetter trial IDM (tiap 5 menit) terpasang"
 ) else (
 call :_color %Red% "Gagal mendaftarkan scheduled task %tr_task%"
 call :log "schtasks /create %tr_task% gagal"
@@ -1051,9 +1059,21 @@ call :_color %Red% "Gagal mendaftarkan scheduled task"
 call :log "schtasks /create gagal"
 )
 
-::  Jalankan segera di sesi saat ini supaya popup yang sedang nongol langsung ditutup.
-start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%pw_ps%"
-call :log "Popup watcher di-spawn di sesi ini"
+::  Jalankan segera di sesi saat ini supaya popup yang sedang nongol langsung
+::  ditutup. Sebelumnya kami memakai `start "" /b powershell ... -File "%pw_ps%"`
+::  yang menempelkan PowerShell ke konsol IAS yang sama (shared stdin/stdout).
+::  Pada beberapa sistem hal ini membuat `timeout` di alur :download_files
+::  mencetak "Input redirection is not supported" dan / atau menutup konsol
+::  saat IDM atau popup_watcher mengambil fokus / handle stdin. Pakai
+::  `schtasks /run` agar Task Scheduler yang melahirkan PowerShell di sesi
+::  user secara terpisah, identik dengan pola :install_trial_resetter.
+schtasks /run /tn "%pw_task%" %nul%
+if "%errorlevel%"=="0" (
+call :log "Popup watcher di-spawn via schtasks /run"
+) else (
+call :log "schtasks /run %pw_task% gagal, fallback ke start /b detached"
+start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%pw_ps%" <nul %nul%
+)
 
 exit /b
 
