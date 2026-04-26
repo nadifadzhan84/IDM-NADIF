@@ -183,6 +183,14 @@ schtasks /query /tn "IAS-NADIF-PopupWatcher" >nul 2>&1 && (
     echo     Jalankan Normal_Activation.cmd sebagai administrator untuk lapisan kedua anti-popup.
 )
 
+::  Trial resetter Scheduled Task - mencegah popup "You have 0 days left" di mode Normal
+schtasks /query /tn "IAS-NADIF-TrialResetter" >nul 2>&1 && (
+    echo [OK] Trial resetter scheduled task aktif ^(IAS-NADIF-TrialResetter^)
+) || (
+    echo [!] Trial resetter scheduled task belum terpasang ^(normal jika hanya Freeze^)
+    echo     Jalankan Normal_Activation.cmd sebagai administrator untuk mencegah popup trial expired.
+)
+
 echo:
 echo ------------------------------------------
 if !issues! EQU 0 (

@@ -8,6 +8,33 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.9 - 2026-04-26
+
+### Baru
+- `tools_nadif/trial_reset.ps1`: script resetter trial-counter IDM. Menghapus `tvfrdt`, `radxcnt`, `ptrk_scdt`, `LstCheck`, `LastCheckQU`, `scansk`, `FromVersion`, `toV` dari `HKCU\Software\DownloadManager` sehingga IDM tidak dapat meng-advance counter trial ke 0. **Serial, FName, LName, dan Email tidak pernah disentuh** agar registri IDM tetap "registered". Log di `%LOCALAPPDATA%\IAS-NADIF\trial_reset.log`.
+- `IAS.cmd`: subrutin baru `:install_trial_resetter` dan `:uninstall_trial_resetter`. Resetter didaftarkan sebagai Scheduled Task `IAS-NADIF-TrialResetter` dengan trigger hourly (`/sc hourly /mo 1`) di konteks user (`rl limited`, `WindowStyle Hidden`). Task juga langsung dijalankan sekali via `schtasks /run` agar counter trial yang lama langsung bersih di sesi aktivasi.
+- Hook baru pada `:_activate` alur **Normal** (baris 702): setelah `:install_popup_watcher`, `:install_trial_resetter` dipanggil supaya popup *"You have N days left to use Internet Download Manager"* maupun hard-stop *"0 days left"* tidak pernah terpicu.
+- Hook baru pada `:_reset` sebagai `STEP 07 Mencopot resetter trial IDM`.
+- `popup_watcher.ps1`: tabel `Triggers` diperluas dari 2 pola (*fake Serial* / *Serial Number has been blocked*) menjadi 5 pola. Tambahan:
+  - `days left to use Internet Download Manager`
+  - `trial period has expired`
+  - `trial version has expired`
+  Jadi watcher kini menutup baik popup fake-serial maupun popup trial-expired jika sempat muncul sebelum resetter sempat menghapus counter.
+- `Test_Script.cmd`: probe informatif baru untuk Scheduled Task `IAS-NADIF-TrialResetter`. Tetap tidak menaikkan kode keluar (informatif saja).
+- `.github/workflows/windows-smoke.yml`: job baru `trial-resetter`. Memverifikasi tokenisasi PS1, memastikan scope hanya menyentuh nilai trial-counter yang diizinkan, dan melarang pola `Remove-ItemProperty -Name Serial/FName/LName/Email` (safety guard supaya tidak pernah tidak sengaja meng-unregister IDM). Job `popup-watcher` diperluas untuk menegaskan 5 frasa pemicu baru hadir di script.
+
+### Perubahan
+- Alur Normal Activation sekarang memasang **dua** Scheduled Task pelengkap:
+  - `IAS-NADIF-PopupWatcher` (onlogon) - menutup popup nag IDM
+  - `IAS-NADIF-TrialResetter` (hourly) - mencegah counter trial sampai 0
+- Alur Reset mencopot kedua task tersebut.
+
+### Kompatibilitas
+- `trial_reset.ps1` memanggil `Remove-ItemProperty` dengan `-ErrorAction SilentlyContinue` untuk nilai yang tidak ada, sehingga aman dijalankan berulang pada registri yang sudah bersih.
+- Watcher tetap memfilter pada kelas window `#32770` + judul persis `Internet Download Manager`. Penambahan 3 frasa trial-expiry tidak melonggarkan filter kelas/judul, sehingga dialog "lifetime license" yang benign tetap tidak tersentuh.
+
+---
+
 ## v1.9.8 - 2026-04-26
 
 ### Baru

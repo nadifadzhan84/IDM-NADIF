@@ -246,3 +246,58 @@ jobs:
             if ($c -notmatch [regex]::Escape($p)) { throw ('IAS.cmd missing: ' + $p) }
             Write-Host ('OK: IAS.cmd contains ' + $p)
           }
+
+      - name: Trigger watcher triggers contain trial-expiry phrases
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content -Raw -LiteralPath 'tools_nadif\popup_watcher.ps1'
+          foreach ($p in 'fake Serial','Serial Number has been blocked','days left to use Internet Download Manager','trial period has expired','trial version has expired') {
+            if ($src -notmatch [regex]::Escape($p)) { throw ('popup_watcher.ps1 missing trigger phrase: ' + $p) }
+            Write-Host ('OK: popup_watcher.ps1 matches phrase ' + $p)
+          }
+
+  trial-resetter:
+    name: trial_reset.ps1 parses + IAS.cmd hooks trial resetter
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PowerShell parse check of trial_reset.ps1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'tools_nadif\trial_reset.ps1'
+          if (-not (Test-Path -LiteralPath $path)) { throw ($path + ' is missing') }
+          $null = [System.Management.Automation.PSParser]::Tokenize(
+            (Get-Content -Raw -LiteralPath $path),
+            [ref]$null
+          )
+          Write-Host 'OK: trial_reset.ps1 tokenizes cleanly'
+
+      - name: trial_reset.ps1 only touches known trial-counter values
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content -Raw -LiteralPath 'tools_nadif\trial_reset.ps1'
+          $allowed = 'tvfrdt','radxcnt','ptrk_scdt','LstCheck','LastCheckQU','scansk','FromVersion','toV'
+          foreach ($v in $allowed) {
+            if ($src -notmatch [regex]::Escape("'" + $v + "'")) {
+              throw ('trial_reset.ps1 missing expected value: ' + $v)
+            }
+          }
+          # Hard guard: never remove Serial/FName/LName/Email - that would UNDO Normal Activation.
+          foreach ($forbidden in 'Remove-ItemProperty.*-Name .Serial','Remove-ItemProperty.*-Name .FName','Remove-ItemProperty.*-Name .LName','Remove-ItemProperty.*-Name .Email') {
+            if ($src -match $forbidden) { throw ('trial_reset.ps1 contains forbidden pattern: ' + $forbidden) }
+          }
+          Write-Host 'OK: trial_reset.ps1 scope is limited to trial counters'
+
+      - name: IAS.cmd references install/uninstall trial_resetter hooks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          foreach ($p in 'call :install_trial_resetter', 'call :uninstall_trial_resetter', ':install_trial_resetter', ':uninstall_trial_resetter', 'IAS-NADIF-TrialResetter') {
+            if ($c -notmatch [regex]::Escape($p)) { throw ('IAS.cmd missing: ' + $p) }
+            Write-Host ('OK: IAS.cmd contains ' + $p)
+          }

@@ -1,14 +1,19 @@
 # IAS-NADIF popup watcher
 #
-# Watches for the IDM "has been registered with a fake Serial Number" dialog
-# and dismisses it automatically. Installed as a per-user scheduled task by
-# IAS.cmd (:install_popup_watcher) and uninstalled by Reset_Activation.
+# Watches for the IDM nag dialogs and dismisses them automatically. Installed
+# as a per-user scheduled task by IAS.cmd (:install_popup_watcher) and
+# uninstalled by Reset_Activation.
 #
-# The dialog class is the standard Win32 dialog "#32770"; window title is
-# "Internet Download Manager". We only close windows whose static text
-# contains "fake Serial Number" or "Serial Number has been blocked", so the
-# main IDM application window and the benign "This product is licensed to"
-# info dialog are never touched.
+# Targets three dialog families, all with class "#32770" and window title
+# "Internet Download Manager":
+#   1. "has been registered with a fake Serial Number" (fake-serial nag)
+#   2. "Serial Number has been blocked" (blocked-serial nag)
+#   3. "days left to use Internet Download Manager" / "trial period has
+#      expired" / "trial version has expired" (trial-expiry nag)
+#
+# The main IDM application window and the benign "This product is licensed to
+# ... This is a lifetime license" info dialog are never touched because their
+# static text does not contain any of the trigger phrases above.
 #
 # Writes a small log at %LOCALAPPDATA%\IAS-NADIF\popup_watcher.log so the
 # user can verify it actually closed something.
@@ -73,14 +78,24 @@ public static class IASPopup {
         return sb.ToString();
     }
 
+    private static readonly string[] Triggers = new string[] {
+        "fake Serial",
+        "Serial Number has been blocked",
+        "days left to use Internet Download Manager",
+        "trial period has expired",
+        "trial version has expired"
+    };
+
     private static bool HasFakeSerialChild(IntPtr hWnd) {
         bool match = false;
         EnumChildWindows(hWnd, delegate(IntPtr c, IntPtr l) {
             string txt = GetText(c);
             if (!string.IsNullOrEmpty(txt)) {
-                if (txt.IndexOf("fake Serial", StringComparison.OrdinalIgnoreCase) >= 0
-                    || txt.IndexOf("Serial Number has been blocked", StringComparison.OrdinalIgnoreCase) >= 0) {
-                    match = true;
+                for (int i = 0; i < Triggers.Length; i++) {
+                    if (txt.IndexOf(Triggers[i], StringComparison.OrdinalIgnoreCase) >= 0) {
+                        match = true;
+                        break;
+                    }
                 }
             }
             return true;

@@ -1,4 +1,4 @@
-@set iasver=1.9.8
+@set iasver=1.9.9
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -535,6 +535,9 @@ call :block_idm_hosts
 call :ui_step "06" "Mencopot pengawas popup fake-serial"
 call :uninstall_popup_watcher
 
+call :ui_step "07" "Mencopot resetter trial IDM"
+call :uninstall_trial_resetter
+
 echo:
 call :ui_line
 echo:
@@ -696,6 +699,7 @@ call :block_idm_hosts
 
 if %frz%==0 call :register_IDM
 if %frz%==0 call :install_popup_watcher
+if %frz%==0 call :install_trial_resetter
 
 call :download_files
 if not defined _fileexist (
@@ -901,6 +905,89 @@ exit /b
 
 ::  Refresh cache DNS agar perubahan segera berlaku
 ipconfig /flushdns %nul%
+
+exit /b
+
+::========================================================================================================================================
+
+:install_trial_resetter
+
+::  Pasang resetter trial-counter IDM sebagai Scheduled Task jam-an.
+::  Task menjalankan tools_nadif\trial_reset.ps1 tiap 1 jam untuk menghapus
+::  nilai tvfrdt / radxcnt / ptrk_scdt / LstCheck / LastCheckQU / scansk dari
+::  HKCU\Software\DownloadManager sehingga IDM tidak bisa meng-advance counter
+::  trial ke 0 ("You have 0 days left to use Internet Download Manager").
+::  Serial/FName/LName/Email tidak pernah disentuh.
+
+echo:
+call :ui_info "Memasang resetter trial IDM (scheduled task)"
+echo:
+call :log "Memulai install trial resetter"
+
+set "tr_dir=%ProgramData%\IAS-NADIF"
+set "tr_ps=%tr_dir%\trial_reset.ps1"
+set "tr_src=%_work%\tools_nadif\trial_reset.ps1"
+set "tr_task=IAS-NADIF-TrialResetter"
+
+if not exist "%tr_src%" (
+call :_color %Red% "Sumber trial_reset.ps1 tidak ditemukan - skip"
+call :log "Sumber trial reset tidak ditemukan di %tr_src%"
+exit /b
+)
+
+if not exist "%tr_dir%" mkdir "%tr_dir%" %nul%
+copy /y "%tr_src%" "%tr_ps%" %nul%
+if not exist "%tr_ps%" (
+call :_color %Red% "Gagal menyalin trial_reset.ps1"
+call :log "Copy ke %tr_ps% gagal"
+exit /b
+)
+
+::  Hentikan dan hapus task lama supaya idempoten.
+schtasks /end /tn "%tr_task%" %nul%
+schtasks /delete /tn "%tr_task%" /f %nul%
+
+::  Daftarkan scheduled task jam-an untuk user sekarang. rl limited supaya
+::  tidak meminta UAC tiap kali trigger dan dijalankan di session user.
+set "tr_action=powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%tr_ps%\""
+schtasks /create /tn "%tr_task%" /sc hourly /mo 1 /ru "%USERDOMAIN%\%USERNAME%" /rl limited /it /f /tr "%tr_action%" %nul%
+
+if "%errorlevel%"=="0" (
+call :log "Scheduled task %tr_task% terpasang"
+call :_color %Green% "Resetter trial IDM (hourly) terpasang"
+) else (
+call :_color %Red% "Gagal mendaftarkan scheduled task %tr_task%"
+call :log "schtasks /create %tr_task% gagal"
+)
+
+::  Jalankan sekali segera supaya counter trial yang lama langsung bersih.
+schtasks /run /tn "%tr_task%" %nul%
+call :log "Trial resetter diluncurkan sekali untuk sesi ini"
+
+exit /b
+
+::========================================================================================================================================
+
+:uninstall_trial_resetter
+
+::  Kebalikan dari :install_trial_resetter. Dipanggil oleh alur reset.
+
+echo:
+call :ui_info "Mencopot resetter trial IDM"
+echo:
+call :log "Memulai uninstall trial resetter"
+
+set "tr_dir=%ProgramData%\IAS-NADIF"
+set "tr_ps=%tr_dir%\trial_reset.ps1"
+set "tr_task=IAS-NADIF-TrialResetter"
+
+schtasks /end /tn "%tr_task%" %nul%
+schtasks /delete /tn "%tr_task%" /f %nul%
+
+if exist "%tr_ps%" del /f /q "%tr_ps%" %nul%
+
+call :log "Trial resetter dicopot"
+call :_color %Green% "Resetter trial IDM dicopot"
 
 exit /b
 
