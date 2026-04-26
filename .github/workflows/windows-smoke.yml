@@ -282,7 +282,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $src = Get-Content -Raw -LiteralPath 'tools_nadif\popup_watcher.ps1'
-          foreach ($p in 'function Reset-TrialCounters','tvfrdt','radxcnt','ptrk_scdt','LstCheck','LastCheckQU','scansk','FromVersion','toV','HKCU:\\Software\\DownloadManager') {
+          foreach ($p in 'function Reset-TrialCounters','tvfrdt','radxcnt','ptrk_scdt','LstCheck','LastCheckQU','scansk','FromVersion','toV','HKCU:\Software\DownloadManager') {
             if ($src -notmatch [regex]::Escape($p)) { throw ('popup_watcher.ps1 missing trial-wipe token: ' + $p) }
             Write-Host ('OK: popup_watcher.ps1 contains ' + $p)
           }
