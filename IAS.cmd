@@ -1,4 +1,4 @@
-@set iasver=1.9.11
+@set iasver=1.9.12
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -734,20 +734,24 @@ echo:
 call :log "Alur selesai, kode keluar %exit_code%"
 if %_unattended%==1 (
 if %_silent%==1 exit /b %exit_code%
-::  Sebelumnya pakai `timeout /t 2 & exit /b` yang exit otomatis 2 detik
-::  setelah aktivasi. Dalam praktik konsol-elevated yang dilahirkan via
-::  `Start-Process -Verb RunAs` di Normal_Activation.cmd kadang punya
-::  stdin yang sudah ter-redirect (bukan handle CON yang sebenarnya),
-::  membuat `timeout` exit dengan "Input redirection is not supported"
-::  dan langsung lanjut ke `exit /b`. Akibatnya konsol tertutup tanpa
-::  user sempat membaca pesan sukses. Sekarang kita tampilkan banner
-::  konfirmasi lalu menunggu keypress eksplisit dengan `<con` redirect
-::  supaya selalu baca dari device console asli, bukan stdin yang
-::  mungkin sudah ter-redirect.
+::  Iterasi sebelumnya:
+::    v1.9.10 -> `timeout /t 2 & exit /b` (auto-exit 2 detik, gagal saat
+::               stdin ter-redirect karena timeout exit instan).
+::    v1.9.11 -> `pause >nul <con`, asumsi `<con` cukup membuka device
+::               console asli. Praktiknya pada beberapa konfigurasi UAC /
+::               Start-Process -Verb RunAs, `<con` tetap mewarisi handle
+::               yang sama dengan stdin yang sudah ter-redirect, sehingga
+::               pause langsung skip dan jendela tertutup.
+::    v1.9.12 -> Pakai `cmd /k` yang melahirkan shell cmd baru dengan
+::               console handle baru dari conhost. Shell baru itu tidak
+::               akan exit otomatis, harus user yang mengetik `exit`
+::               atau menutup jendela manual (klik X). Dijamin tidak
+::               close sendiri terlepas dari kondisi stdin parent.
 echo:
-call :ui_done "AKTIVASI SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
+call :ui_done "AKTIVASI SELESAI"
+call :ui_info "Ketik exit lalu tekan Enter untuk menutup, atau klik X di pojok kanan."
 echo:
-pause >nul <con
+cmd /k
 exit /b %exit_code%
 )
 
@@ -765,12 +769,13 @@ goto MainMenu
 call :log "Alur selesai, kode keluar %exit_code%"
 if %_unattended%==1 (
 if %_silent%==1 exit /b %exit_code%
-::  Lihat catatan di :done - pakai pause <con yang robust terhadap
-::  stdin yang sudah ter-redirect oleh elevation Start-Process.
+::  Lihat catatan di :done - pakai cmd /k untuk shell baru dengan
+::  console handle fresh, dijamin tidak close sendiri.
 echo:
-call :ui_done "SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
+call :ui_done "SELESAI"
+call :ui_info "Ketik exit lalu tekan Enter untuk menutup, atau klik X di pojok kanan."
 echo:
-pause >nul <con
+cmd /k
 exit /b %exit_code%
 )
 

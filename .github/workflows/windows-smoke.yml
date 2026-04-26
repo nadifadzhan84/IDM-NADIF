@@ -123,33 +123,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: IAS.cmd uses pause <con in :done / :done2 unattended branch
+      - name: IAS.cmd uses cmd /k in :done / :done2 unattended branch
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
-          # Sebelumnya `:done` pakai `timeout /t 2 & exit /b` yang gampang
-          # gagal kalau stdin ter-redirect oleh elevasi `Start-Process -Verb
-          # RunAs`. Sekarang harus pakai `pause >nul <con` supaya selalu
-          # baca dari device console.
-          if ($c -notmatch 'pause >nul <con') {
-            throw 'IAS.cmd missing `pause >nul <con` — :done unattended branch must use it'
+          # v1.9.10 -> timeout/exit (gagal saat stdin ter-redirect)
+          # v1.9.11 -> pause <con (tetap gagal di sebagian konfigurasi UAC)
+          # v1.9.12 -> cmd /k (shell baru dengan console handle fresh,
+          #            dijamin tidak close sendiri).
+          $cmdkCount = ([regex]::Matches($c, '(?m)^cmd /k\s*$')).Count
+          if ($cmdkCount -lt 2) {
+            throw "IAS.cmd must invoke 'cmd /k' in BOTH :done and :done2 unattended branches; found $cmdkCount"
           }
           if ($c -match ':done\s*\r?\n[\s\S]*?_unattended.*?timeout /t 2 & exit /b') {
             throw 'IAS.cmd :done still uses `timeout /t 2 & exit /b` in unattended branch'
           }
-          Write-Host 'OK: IAS.cmd :done uses pause >nul <con'
+          Write-Host 'OK: IAS.cmd :done and :done2 use cmd /k'
 
-      - name: Wrapper scripts use pause <con (Normal/Quick/Reset_Activation.cmd)
+      - name: Wrapper scripts skip pause on success (cmd /k handles it)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           foreach ($f in 'Normal_Activation.cmd','Quick_Activation.cmd','Reset_Activation.cmd') {
             $c = Get-Content -Raw -LiteralPath $f
-            if ($c -notmatch 'pause <con') {
-              throw ($f + ' must use `pause <con` so the window does not close instantly when elevation redirects stdin')
+            # Pause hanya boleh muncul di branch 'if not "%ret%"=="0"'
+            # (untuk error path), bukan di happy path.
+            if ($c -match '(?m)^echo %\* \| find /i "/silent" >nul \|\| pause') {
+              throw ($f + ' still pauses on success path; should only pause when ret != 0 because cmd /k in IAS.cmd already holds the window')
             }
-            Write-Host ('OK: ' + $f + ' uses pause <con')
+            if ($c -notmatch 'if not "%ret%"=="0" \(\s*\r?\n\s*echo %\* \| find /i "/silent" >nul \|\| pause <con') {
+              throw ($f + ' missing error-path pause `if not "%ret%"=="0" ... pause <con`')
+            }
+            Write-Host ('OK: ' + $f + ' pauses only on error path')
           }
 
       - name: Verify CRLF + ASCII hygiene

@@ -8,6 +8,20 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.12 - 2026-04-26
+
+### Perbaikan
+- **Konsol IAS dijamin tidak menutup sendiri setelah aktivasi sukses.** Iterasi v1.9.11 mengganti `timeout /t 2 & exit /b` dengan `pause >nul <con`, mengasumsikan redirect `<con` cukup membuka device console asli. Ternyata pada beberapa konfigurasi UAC / `Start-Process -Verb RunAs`, handle yang dibuka oleh `<con` mewarisi state yang sama dengan stdin parent yang sudah ter-redirect, sehingga `pause` tetap exit instan dan jendela menutup. v1.9.12 mengganti pendekatannya:
+  - `:done` dan `:done2` di `IAS.cmd` melahirkan shell baru via `cmd /k` setelah aktivasi selesai. Shell baru itu memperoleh handle console fresh dari conhost dan tidak akan exit otomatis — user wajib mengetik `exit` lalu Enter, atau menutup jendela manual (klik X). Dijamin tidak close sendiri terlepas dari kondisi stdin parent.
+  - Banner sukses `AKTIVASI SELESAI` + petunjuk `Ketik exit lalu tekan Enter untuk menutup, atau klik X di pojok kanan` tetap ditampilkan sebelum `cmd /k`.
+  - `Normal_Activation.cmd` / `Quick_Activation.cmd` / `Reset_Activation.cmd` menghapus `pause` di happy-path (sudah ditahan oleh `cmd /k` di IAS.cmd) dan hanya pause kalau IAS.cmd return error code != 0 supaya pesan error sempat dilihat.
+
+### Kompatibilitas
+- Mode `/silent` tetap auto-exit tanpa banner / `cmd /k` (perilaku CI / otomatisasi tidak berubah).
+- Mode interaktif (jalankan `IAS.cmd` tanpa argumen) tetap memakai prompt `Tekan 0` / `Tekan sembarang tombol` standar, kembali ke MainMenu.
+
+---
+
 ## v1.9.11 - 2026-04-26
 
 ### Perbaikan
