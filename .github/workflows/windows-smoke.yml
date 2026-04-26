@@ -196,3 +196,53 @@ jobs:
             exit /b 1
           )
           echo Test_Script.cmd parsed and executed cleanly.
+
+  popup-watcher:
+    name: popup_watcher.ps1 parses and compiles under Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PowerShell parse check of popup_watcher.ps1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'tools_nadif\popup_watcher.ps1'
+          if (-not (Test-Path -LiteralPath $path)) { throw ($path + ' is missing') }
+          $null = [System.Management.Automation.PSParser]::Tokenize(
+            (Get-Content -Raw -LiteralPath $path),
+            [ref]$null
+          )
+          Write-Host 'OK: popup_watcher.ps1 tokenizes cleanly'
+
+      - name: Add-Type compiles the embedded IASPopup C# block
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src  = Get-Content -Raw -LiteralPath 'tools_nadif\popup_watcher.ps1'
+          $m    = [regex]::Match($src, "@'(?<body>.*?)'@", 'Singleline')
+          if (-not $m.Success) { throw 'Could not extract the C# here-string from popup_watcher.ps1' }
+          $cs = $m.Groups['body'].Value
+          Add-Type -TypeDefinition $cs -Language CSharp -ErrorAction Stop
+          $expected = @('FindFakeSerialPopups','DismissAll')
+          $actual   = [IASPopup].GetMethods('Public,Static') | ForEach-Object { $_.Name }
+          foreach ($e in $expected) {
+            if ($actual -notcontains $e) { throw ('IASPopup missing method: ' + $e) }
+            Write-Host ('OK: IASPopup.' + $e + ' is reachable')
+          }
+          # No real IDM on the CI host; FindFakeSerialPopups must return an empty array
+          # rather than throwing, which also exercises EnumWindows end-to-end.
+          $hits = [IASPopup]::FindFakeSerialPopups()
+          if ($null -eq $hits) { throw 'FindFakeSerialPopups returned $null' }
+          Write-Host ('OK: FindFakeSerialPopups returned ' + $hits.Count + ' windows (0 expected on runner)')
+
+
+      - name: IAS.cmd references install/uninstall popup_watcher hooks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          foreach ($p in 'call :install_popup_watcher', 'call :uninstall_popup_watcher', ':install_popup_watcher', ':uninstall_popup_watcher', 'IAS-NADIF-PopupWatcher') {
+            if ($c -notmatch [regex]::Escape($p)) { throw ('IAS.cmd missing: ' + $p) }
+            Write-Host ('OK: IAS.cmd contains ' + $p)
+          }

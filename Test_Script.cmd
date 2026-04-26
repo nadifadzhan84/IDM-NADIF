@@ -172,6 +172,17 @@ if exist "!hostsFile!" (
     if not defined firstFail set "firstFail=Hosts file tidak ditemukan ^| Periksa instalasi Windows, bypass popup fake-serial membutuhkan file ini."
 )
 
+::  Verifikasi lapisan kedua: Scheduled Task popup watcher.
+::  Bersifat informatif - tidak menaikkan kode keluar. Watcher hanya dipasang
+::  oleh alur Normal Activation, sehingga user yang hanya Freeze-activated
+::  tidak perlu dibebani error.
+schtasks /query /tn "IAS-NADIF-PopupWatcher" >nul 2>&1 && (
+    echo [OK] Popup watcher scheduled task aktif ^(IAS-NADIF-PopupWatcher^)
+) || (
+    echo [!] Popup watcher scheduled task belum terpasang ^(normal jika hanya Freeze^)
+    echo     Jalankan Normal_Activation.cmd sebagai administrator untuk lapisan kedua anti-popup.
+)
+
 echo:
 echo ------------------------------------------
 if !issues! EQU 0 (

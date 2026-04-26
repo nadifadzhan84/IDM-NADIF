@@ -8,6 +8,21 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.8 - 2026-04-26
+
+### Baru
+- `tools_nadif/popup_watcher.ps1`: pengawas popup "fake Serial Number" IDM berbasis Win32 API. Menggunakan `EnumWindows` + `EnumChildWindows` untuk memindai jendela dialog (`#32770`) berjudul `Internet Download Manager` yang memuat teks `fake Serial Number` atau `Serial Number has been blocked`, lalu mengirim `WM_CLOSE` via `PostMessage`. Jendela IDM utama dan dialog `This product is licensed to ... This is a lifetime license` tidak pernah disentuh karena teksnya berbeda. Log ringkas ditulis ke `%LOCALAPPDATA%\IAS-NADIF\popup_watcher.log`.
+- `IAS.cmd`: subrutin baru `:install_popup_watcher` dan `:uninstall_popup_watcher`. Watcher disalin ke `%ProgramData%\IAS-NADIF\popup_watcher.ps1`, lalu didaftarkan sebagai Scheduled Task `IAS-NADIF-PopupWatcher` (trigger: onlogon, user sekarang, `WindowStyle Hidden`, `rl limited`). Watcher juga di-spawn langsung di sesi saat ini sehingga popup yang sedang nongol dapat segera ditutup. Task dihentikan secara kooperatif melalui file sinyal `%ProgramData%\IAS-NADIF\stop.flag` (watcher mengecek flag tiap iterasi).
+- Hook baru pada `:_activate` alur **Normal** (baris 698): setelah `:register_IDM`, `:install_popup_watcher` dipanggil agar popup fake-serial yang lolos blok hosts tetap ditutup otomatis.
+- Hook baru pada `:_reset` sebagai langkah `STEP 06 Mencopot pengawas popup fake-serial`: menghentikan watcher via stop.flag, menghapus Scheduled Task, dan membersihkan `%ProgramData%\IAS-NADIF`.
+
+### Kompatibilitas
+- Popup watcher hanya menargetkan dialog dengan kelas window `#32770` + judul persis `Internet Download Manager` + teks anak yang cocok dengan pola fake-serial. Tidak ada risiko menutup jendela lain milik IDM atau aplikasi lain yang kebetulan berjudul sama tetapi tanpa teks pemicu.
+- Semua operasi Scheduled Task idempoten: `:install_popup_watcher` meng-`end` + `delete` task lama dan membunuh instance watcher lama via stop.flag sebelum memasang ulang, sehingga pemanggilan berulang aman.
+- Nama Scheduled Task konsisten `IAS-NADIF-PopupWatcher` agar mudah dicari atau dihapus manual via `schtasks /query /tn "IAS-NADIF-PopupWatcher"`.
+
+---
+
 ## v1.9.7 - 2026-04-25
 
 ### Baru

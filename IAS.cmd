@@ -1,4 +1,4 @@
-@set iasver=1.9.7
+@set iasver=1.9.8
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -532,6 +532,9 @@ call :add_key
 call :ui_step "05" "Memblok server validasi IDM pada hosts file"
 call :block_idm_hosts
 
+call :ui_step "06" "Mencopot pengawas popup fake-serial"
+call :uninstall_popup_watcher
+
 echo:
 call :ui_line
 echo:
@@ -692,6 +695,7 @@ call :block_idm_hosts
 %psc% "$sid = '%_sid%'; $HKCUsync = %HKCUsync%; $lockKey = 1; $deleteKey = $null; $toggle = 1; $f=[io.file]::ReadAllText('!_batp!') -split ':regscan\:.*';iex ($f[1])"
 
 if %frz%==0 call :register_IDM
+if %frz%==0 call :install_popup_watcher
 
 call :download_files
 if not defined _fileexist (
@@ -897,6 +901,106 @@ exit /b
 
 ::  Refresh cache DNS agar perubahan segera berlaku
 ipconfig /flushdns %nul%
+
+exit /b
+
+::========================================================================================================================================
+
+:install_popup_watcher
+
+::  Pasang pengawas popup fake-serial IDM sebagai Scheduled Task onlogon.
+::  Script PowerShell kecil (tools_nadif\popup_watcher.ps1) disalin ke
+::  %ProgramData%\IAS-NADIF lalu dijalankan tersembunyi tiap user login.
+::  Watcher memindai jendela IDM yang memuat teks "fake Serial Number" atau
+::  "Serial Number has been blocked" lalu menutupnya via PostMessage WM_CLOSE.
+::  Ini lapisan pertahanan TERAKHIR untuk kasus di mana IDM 6.42 tetap
+::  memunculkan popup meskipun domain validasi sudah diblok di hosts.
+
+echo:
+call :ui_info "Memasang pengawas popup fake-serial (scheduled task)"
+echo:
+call :log "Memulai install popup watcher"
+
+set "pw_dir=%ProgramData%\IAS-NADIF"
+set "pw_ps=%pw_dir%\popup_watcher.ps1"
+set "pw_src=%_work%\tools_nadif\popup_watcher.ps1"
+set "pw_stop=%pw_dir%\stop.flag"
+set "pw_task=IAS-NADIF-PopupWatcher"
+
+if not exist "%pw_src%" (
+call :_color %Red% "Sumber popup_watcher.ps1 tidak ditemukan - skip"
+call :log "Sumber watcher tidak ditemukan di %pw_src%"
+exit /b
+)
+
+if not exist "%pw_dir%" mkdir "%pw_dir%" %nul%
+copy /y "%pw_src%" "%pw_ps%" %nul%
+if not exist "%pw_ps%" (
+call :_color %Red% "Gagal menyalin popup_watcher.ps1"
+call :log "Copy ke %pw_ps% gagal"
+exit /b
+)
+
+if exist "%pw_stop%" del /f /q "%pw_stop%" %nul%
+
+::  Hentikan dan hapus task lama supaya idempoten, lalu sinyalkan instance watcher
+::  yang masih berjalan untuk exit melalui stop.flag (dibuat sebentar, lalu dihapus).
+schtasks /end /tn "%pw_task%" %nul%
+schtasks /delete /tn "%pw_task%" /f %nul%
+
+echo stop> "%pw_stop%"
+timeout /t 2 %nul1%
+if exist "%pw_stop%" del /f /q "%pw_stop%" %nul%
+
+::  Daftarkan scheduled task onlogon untuk user sekarang, tersembunyi, limited run level.
+set "pw_action=powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%pw_ps%\""
+schtasks /create /tn "%pw_task%" /sc onlogon /ru "%USERDOMAIN%\%USERNAME%" /rl limited /it /f /tr "%pw_action%" %nul%
+
+if "%errorlevel%"=="0" (
+call :log "Scheduled task %pw_task% terpasang"
+call :_color %Green% "Popup watcher onlogon terpasang"
+) else (
+call :_color %Red% "Gagal mendaftarkan scheduled task"
+call :log "schtasks /create gagal"
+)
+
+::  Jalankan segera di sesi saat ini supaya popup yang sedang nongol langsung ditutup.
+start "" /b powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%pw_ps%"
+call :log "Popup watcher di-spawn di sesi ini"
+
+exit /b
+
+::========================================================================================================================================
+
+:uninstall_popup_watcher
+
+::  Kebalikan dari :install_popup_watcher. Dipanggil oleh alur reset untuk
+::  mencopot scheduled task, menghentikan watcher yang berjalan via stop.flag,
+::  dan membersihkan file di %ProgramData%\IAS-NADIF.
+
+echo:
+call :ui_info "Mencopot pengawas popup fake-serial"
+echo:
+call :log "Memulai uninstall popup watcher"
+
+set "pw_dir=%ProgramData%\IAS-NADIF"
+set "pw_ps=%pw_dir%\popup_watcher.ps1"
+set "pw_stop=%pw_dir%\stop.flag"
+set "pw_task=IAS-NADIF-PopupWatcher"
+
+schtasks /end /tn "%pw_task%" %nul%
+schtasks /delete /tn "%pw_task%" /f %nul%
+
+if exist "%pw_dir%" (
+echo stop> "%pw_stop%"
+timeout /t 2 %nul1%
+if exist "%pw_stop%" del /f /q "%pw_stop%" %nul%
+if exist "%pw_ps%" del /f /q "%pw_ps%" %nul%
+rd /s /q "%pw_dir%" %nul%
+)
+
+call :log "Popup watcher dicopot"
+call :_color %Green% "Pengawas popup fake-serial dicopot"
 
 exit /b
 
