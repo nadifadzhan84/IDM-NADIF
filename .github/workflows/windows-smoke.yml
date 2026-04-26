@@ -123,33 +123,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: IAS.cmd uses pause <con in :done / :done2 unattended branch
+      - name: IAS.cmd spawns detached cmd /k window + ping fallback in :done / :done2 hold
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
-          # Sebelumnya `:done` pakai `timeout /t 2 & exit /b` yang gampang
-          # gagal kalau stdin ter-redirect oleh elevasi `Start-Process -Verb
-          # RunAs`. Sekarang harus pakai `pause >nul <con` supaya selalu
-          # baca dari device console.
-          if ($c -notmatch 'pause >nul <con') {
-            throw 'IAS.cmd missing `pause >nul <con` — :done unattended branch must use it'
+          # v1.9.10 timeout/exit, v1.9.11 pause<con, v1.9.12 cmd/k inline,
+          # v1.9.13 -> spawn detached `start cmd /k` + infinite ping fallback.
+          $startSpawn = ([regex]::Matches($c, 'start "IAS-NADIF [^"]+" cmd /k')).Count
+          if ($startSpawn -lt 2) {
+            throw "IAS.cmd must spawn detached cmd /k window in BOTH :done and :done2 hold blocks; found $startSpawn"
           }
-          if ($c -match ':done\s*\r?\n[\s\S]*?_unattended.*?timeout /t 2 & exit /b') {
-            throw 'IAS.cmd :done still uses `timeout /t 2 & exit /b` in unattended branch'
+          # Pastikan label hold ada di luar parens.
+          foreach ($lbl in ':done_unattended_hold',':done2_unattended_hold') {
+            if ($c -notmatch [regex]::Escape($lbl)) {
+              throw "IAS.cmd missing label $lbl"
+            }
           }
-          Write-Host 'OK: IAS.cmd :done uses pause >nul <con'
+          # Pastikan ada loop ping fallback (bulletproof; tidak peduli stdin).
+          $pingLoops = ([regex]::Matches($c, 'ping 127\.0\.0\.1 -n 60')).Count
+          if ($pingLoops -lt 2) {
+            throw "IAS.cmd must have ping infinite-loop fallback in BOTH done blocks; found $pingLoops"
+          }
+          if ($c -notmatch 'goto :done_unattended_pingloop' -or $c -notmatch 'goto :done2_unattended_pingloop') {
+            throw 'IAS.cmd missing `goto :done*_unattended_pingloop` infinite hold loop'
+          }
+          # Pastikan timeout /t 2 lama tidak balik di kode aktif (bukan komentar).
+          # Comment lines mulai dengan `::` boleh menyebut history.
+          $codeLines = ($c -split "`n") | Where-Object { $_ -notmatch '^\s*::' }
+          $codeJoined = $codeLines -join "`n"
+          if ($codeJoined -match 'timeout /t 2 & exit /b') {
+            throw 'IAS.cmd still uses regressed `timeout /t 2 & exit /b` in active code'
+          }
+          Write-Host 'OK: IAS.cmd spawns detached cmd /k + ping-loop fallback'
 
-      - name: Wrapper scripts use pause <con (Normal/Quick/Reset_Activation.cmd)
+      - name: Wrapper scripts skip pause on success (cmd /k handles it)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           foreach ($f in 'Normal_Activation.cmd','Quick_Activation.cmd','Reset_Activation.cmd') {
             $c = Get-Content -Raw -LiteralPath $f
-            if ($c -notmatch 'pause <con') {
-              throw ($f + ' must use `pause <con` so the window does not close instantly when elevation redirects stdin')
+            # Pause hanya boleh muncul di branch 'if not "%ret%"=="0"'
+            # (untuk error path), bukan di happy path.
+            if ($c -match '(?m)^echo %\* \| find /i "/silent" >nul \|\| pause') {
+              throw ($f + ' still pauses on success path; should only pause when ret != 0 because cmd /k in IAS.cmd already holds the window')
             }
-            Write-Host ('OK: ' + $f + ' uses pause <con')
+            if ($c -notmatch 'if not "%ret%"=="0" \(\s*\r?\n\s*echo %\* \| find /i "/silent" >nul \|\| pause <con') {
+              throw ($f + ' missing error-path pause `if not "%ret%"=="0" ... pause <con`')
+            }
+            Write-Host ('OK: ' + $f + ' pauses only on error path')
           }
 
       - name: Verify CRLF + ASCII hygiene
