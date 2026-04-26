@@ -196,3 +196,108 @@ jobs:
             exit /b 1
           )
           echo Test_Script.cmd parsed and executed cleanly.
+
+  popup-watcher:
+    name: popup_watcher.ps1 parses and compiles under Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PowerShell parse check of popup_watcher.ps1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'tools_nadif\popup_watcher.ps1'
+          if (-not (Test-Path -LiteralPath $path)) { throw ($path + ' is missing') }
+          $null = [System.Management.Automation.PSParser]::Tokenize(
+            (Get-Content -Raw -LiteralPath $path),
+            [ref]$null
+          )
+          Write-Host 'OK: popup_watcher.ps1 tokenizes cleanly'
+
+      - name: Add-Type compiles the embedded IASPopup C# block
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src  = Get-Content -Raw -LiteralPath 'tools_nadif\popup_watcher.ps1'
+          $m    = [regex]::Match($src, "@'(?<body>.*?)'@", 'Singleline')
+          if (-not $m.Success) { throw 'Could not extract the C# here-string from popup_watcher.ps1' }
+          $cs = $m.Groups['body'].Value
+          Add-Type -TypeDefinition $cs -Language CSharp -ErrorAction Stop
+          $expected = @('FindFakeSerialPopups','DismissAll')
+          $actual   = [IASPopup].GetMethods('Public,Static') | ForEach-Object { $_.Name }
+          foreach ($e in $expected) {
+            if ($actual -notcontains $e) { throw ('IASPopup missing method: ' + $e) }
+            Write-Host ('OK: IASPopup.' + $e + ' is reachable')
+          }
+          # No real IDM on the CI host; FindFakeSerialPopups must return an empty array
+          # rather than throwing, which also exercises EnumWindows end-to-end.
+          $hits = [IASPopup]::FindFakeSerialPopups()
+          if ($null -eq $hits) { throw 'FindFakeSerialPopups returned $null' }
+          Write-Host ('OK: FindFakeSerialPopups returned ' + $hits.Count + ' windows (0 expected on runner)')
+
+
+      - name: IAS.cmd references install/uninstall popup_watcher hooks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          foreach ($p in 'call :install_popup_watcher', 'call :uninstall_popup_watcher', ':install_popup_watcher', ':uninstall_popup_watcher', 'IAS-NADIF-PopupWatcher') {
+            if ($c -notmatch [regex]::Escape($p)) { throw ('IAS.cmd missing: ' + $p) }
+            Write-Host ('OK: IAS.cmd contains ' + $p)
+          }
+
+      - name: Trigger watcher triggers contain trial-expiry phrases
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content -Raw -LiteralPath 'tools_nadif\popup_watcher.ps1'
+          foreach ($p in 'fake Serial','Serial Number has been blocked','days left to use Internet Download Manager','trial period has expired','trial version has expired') {
+            if ($src -notmatch [regex]::Escape($p)) { throw ('popup_watcher.ps1 missing trigger phrase: ' + $p) }
+            Write-Host ('OK: popup_watcher.ps1 matches phrase ' + $p)
+          }
+
+  trial-resetter:
+    name: trial_reset.ps1 parses + IAS.cmd hooks trial resetter
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PowerShell parse check of trial_reset.ps1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'tools_nadif\trial_reset.ps1'
+          if (-not (Test-Path -LiteralPath $path)) { throw ($path + ' is missing') }
+          $null = [System.Management.Automation.PSParser]::Tokenize(
+            (Get-Content -Raw -LiteralPath $path),
+            [ref]$null
+          )
+          Write-Host 'OK: trial_reset.ps1 tokenizes cleanly'
+
+      - name: trial_reset.ps1 only touches known trial-counter values
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content -Raw -LiteralPath 'tools_nadif\trial_reset.ps1'
+          $allowed = 'tvfrdt','radxcnt','ptrk_scdt','LstCheck','LastCheckQU','scansk','FromVersion','toV'
+          foreach ($v in $allowed) {
+            if ($src -notmatch [regex]::Escape("'" + $v + "'")) {
+              throw ('trial_reset.ps1 missing expected value: ' + $v)
+            }
+          }
+          # Hard guard: never remove Serial/FName/LName/Email - that would UNDO Normal Activation.
+          foreach ($forbidden in 'Remove-ItemProperty.*-Name .Serial','Remove-ItemProperty.*-Name .FName','Remove-ItemProperty.*-Name .LName','Remove-ItemProperty.*-Name .Email') {
+            if ($src -match $forbidden) { throw ('trial_reset.ps1 contains forbidden pattern: ' + $forbidden) }
+          }
+          Write-Host 'OK: trial_reset.ps1 scope is limited to trial counters'
+
+      - name: IAS.cmd references install/uninstall trial_resetter hooks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          foreach ($p in 'call :install_trial_resetter', 'call :uninstall_trial_resetter', ':install_trial_resetter', ':uninstall_trial_resetter', 'IAS-NADIF-TrialResetter') {
+            if ($c -notmatch [regex]::Escape($p)) { throw ('IAS.cmd missing: ' + $p) }
+            Write-Host ('OK: IAS.cmd contains ' + $p)
+          }
