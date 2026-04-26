@@ -247,15 +247,60 @@ jobs:
             Write-Host ('OK: IAS.cmd contains ' + $p)
           }
 
-      - name: Trigger watcher triggers contain trial-expiry phrases
+      - name: Trigger watcher triggers contain trial-expiry + buy-popup phrases
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $src = Get-Content -Raw -LiteralPath 'tools_nadif\popup_watcher.ps1'
-          foreach ($p in 'fake Serial','Serial Number has been blocked','days left to use Internet Download Manager','trial period has expired','trial version has expired') {
+          $required = @(
+            'fake Serial',
+            'Serial Number has been blocked',
+            'days left to use Internet Download Manager',
+            'trial period has expired',
+            'trial version has expired',
+            '0 days left',
+            'You may buy IDM to continue using it',
+            'PLEASE ENTER YOUR SERIAL NUMBER',
+            'ALREADY PURCHASED'
+          )
+          foreach ($p in $required) {
             if ($src -notmatch [regex]::Escape($p)) { throw ('popup_watcher.ps1 missing trigger phrase: ' + $p) }
             Write-Host ('OK: popup_watcher.ps1 matches phrase ' + $p)
           }
+          # Hard guard: "Lifetime license" must NEVER be a trigger because the
+          # benign "This product is licensed to ... This is a lifetime license"
+          # info dialog would be force-closed otherwise.
+          $m = [regex]::Match($src, "Triggers\s*=\s*new\s+string\[\]\s*\{(?<body>[^}]*)\}", 'Singleline')
+          if (-not $m.Success) { throw 'Could not locate Triggers array in popup_watcher.ps1' }
+          if ($m.Groups['body'].Value -match 'Lifetime license') {
+            throw 'popup_watcher.ps1 Triggers array MUST NOT contain "Lifetime license" -- the benign lifetime-license info dialog would get force-closed.'
+          }
+          Write-Host 'OK: Triggers array does not contain "Lifetime license"'
+
+      - name: popup_watcher.ps1 has real-time trial-counter wipe in hot loop
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content -Raw -LiteralPath 'tools_nadif\popup_watcher.ps1'
+          foreach ($p in 'function Reset-TrialCounters','tvfrdt','radxcnt','ptrk_scdt','LstCheck','LastCheckQU','scansk','FromVersion','toV','HKCU:\\Software\\DownloadManager') {
+            if ($src -notmatch [regex]::Escape($p)) { throw ('popup_watcher.ps1 missing trial-wipe token: ' + $p) }
+            Write-Host ('OK: popup_watcher.ps1 contains ' + $p)
+          }
+          # Reset-TrialCounters MUST be invoked from the main while loop, not
+          # just defined. Confirm a call exists somewhere after the function.
+          if ($src -notmatch 'Reset-TrialCounters\s*$' -and $src -notmatch 'Reset-TrialCounters\s*\)' -and $src -notmatch 'Reset-TrialCounters\s*\r?\n') {
+            # Fallback: just look for any non-definition occurrence after the function body
+            $nonDef = ($src -split 'function Reset-TrialCounters', 2)[1]
+            if (-not $nonDef -or ($nonDef -notmatch 'Reset-TrialCounters')) {
+              throw 'popup_watcher.ps1 defines Reset-TrialCounters but never calls it'
+            }
+          }
+          Write-Host 'OK: popup_watcher.ps1 invokes Reset-TrialCounters'
+          # Hard guard: NEVER touch Serial/FName/LName/Email even from the watcher.
+          foreach ($forbidden in 'Remove-ItemProperty.*-Name\s+.?Serial','Remove-ItemProperty.*-Name\s+.?FName','Remove-ItemProperty.*-Name\s+.?LName','Remove-ItemProperty.*-Name\s+.?Email') {
+            if ($src -match $forbidden) { throw ('popup_watcher.ps1 contains forbidden pattern: ' + $forbidden) }
+          }
+          Write-Host 'OK: popup_watcher.ps1 never removes Serial/FName/LName/Email'
 
   trial-resetter:
     name: trial_reset.ps1 parses + IAS.cmd hooks trial resetter
@@ -301,3 +346,43 @@ jobs:
             if ($c -notmatch [regex]::Escape($p)) { throw ('IAS.cmd missing: ' + $p) }
             Write-Host ('OK: IAS.cmd contains ' + $p)
           }
+
+      - name: IAS.cmd schedules trial_resetter every 5 minutes (not hourly)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          # The IAS-NADIF-TrialResetter task must use /sc minute /mo 5 so the
+          # "0 days left" popup window cannot open between runs. Hourly was
+          # too sparse and let the popup surface within minutes of logon.
+          if ($c -notmatch '/sc minute /mo 5') {
+            throw 'IAS.cmd does not schedule the trial resetter every 5 minutes (/sc minute /mo 5).'
+          }
+          Write-Host 'OK: trial resetter scheduled every 5 minutes'
+          # And it must NOT regress to hourly on the create line.
+          $createLine = ($c -split "`n") | Where-Object { $_ -match 'schtasks /create.*IAS-NADIF-TrialResetter|schtasks /create.*tr_task' -or $_ -match 'schtasks /create /tn "%tr_task%"' }
+          foreach ($l in $createLine) {
+            if ($l -match '/sc hourly') {
+              throw 'IAS.cmd still uses /sc hourly on the trial-resetter create line: ' + $l
+            }
+          }
+          Write-Host 'OK: no /sc hourly on trial-resetter create line'
+
+      - name: IAS.cmd uses schtasks /run for popup watcher (not start /b)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          # The :install_popup_watcher subroutine MUST spawn the watcher via
+          # `schtasks /run` so the PowerShell process detaches into the user
+          # session instead of inheriting the IAS console (which previously
+          # caused the console to close mid-activation under Normal mode).
+          # Locate the :install_popup_watcher block and assert its content.
+          $idx1 = $c.IndexOf(':install_popup_watcher')
+          $idx2 = $c.IndexOf(':uninstall_popup_watcher', $idx1 + 1)
+          if ($idx1 -lt 0 -or $idx2 -lt 0) { throw 'Could not isolate :install_popup_watcher block' }
+          $block = $c.Substring($idx1, $idx2 - $idx1)
+          if ($block -notmatch 'schtasks /run /tn "%pw_task%"') {
+            throw ':install_popup_watcher must launch the watcher via `schtasks /run /tn "%pw_task%"`'
+          }
+          Write-Host 'OK: :install_popup_watcher uses schtasks /run as primary spawn path'

@@ -8,6 +8,27 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.10 - 2026-04-26
+
+### Perbaikan
+- **Konsol IAS tidak lagi tertutup sendiri di tengah Normal Activation.** Sebelumnya `:install_popup_watcher` menjalankan `start "" /b powershell ... -File "%pw_ps%"` yang menempelkan PowerShell `popup_watcher.ps1` ke konsol IAS yang sama (shared stdin/stdout). Akibatnya pada beberapa sistem `timeout /t 1` di alur `:download_files` mencetak *"Input redirection is not supported, exiting the process immediately"* dan/atau membuat konsol tertutup ketika IDM atau watcher mengambil fokus / handle stdin. Sekarang watcher dilahirkan via `schtasks /run /tn "IAS-NADIF-PopupWatcher"` (pola yang sama dengan `:install_trial_resetter`) sehingga PowerShell berjalan di sesi user terpisah, tidak berbagi konsol dengan IAS. Fallback `start /b ... <nul %nul%` tetap ada andai `schtasks /run` gagal.
+- `:check_file` mengganti `timeout /t 1 %nul1%` dengan `ping 127.0.0.1 -n 2 %nul1%` agar polling unduhan IDM tidak ter-skip ke loop ketat ketika `timeout` menolak stdin yang sudah di-redirect / dikonsumsi proses anak.
+
+### Perubahan
+- **Popup "0 days left to use Internet Download Manager" yang muncul ~1 hari setelah Normal Activation kini ditekan secara real-time.** `tools_nadif\popup_watcher.ps1` dilengkapi fungsi `Reset-TrialCounters` yang dipanggil di hot loop tiap ~750 ms. Fungsi ini menghapus `tvfrdt`, `radxcnt`, `ptrk_scdt`, `LstCheck`, `LastCheckQU`, `scansk`, `FromVersion`, dan `toV` dari `HKCU\Software\DownloadManager` setiap iterasi sehingga IDM 6.42 tidak punya jendela waktu untuk meng-advance counter trial ke 0. Serial / FName / LName / Email tetap **tidak pernah** disentuh.
+- Scheduled Task `IAS-NADIF-TrialResetter` diubah dari `/sc hourly /mo 1` menjadi `/sc minute /mo 5`. Hourly sebelumnya terlalu jarang ketika watcher belum sempat berjalan (mis. user logout di tengah aktivasi). Resetter sekarang menjadi lapisan kedua di belakang inline-reset di watcher.
+- `popup_watcher.ps1` `Triggers` diperluas dari 5 menjadi 9 frasa sehingga dialog *"You have 0 days left"* / *"You may buy IDM to continue using it"* / *"PLEASE ENTER YOUR SERIAL NUMBER"* / *"ALREADY PURCHASED"* ikut ditutup. Frasa `Lifetime license` sengaja **tidak** dimasukkan karena dialog informasi benign *"This product is licensed to ... This is a lifetime license"* memuat teks itu dan tidak boleh ditutup paksa.
+
+### Kompatibilitas
+- Fallback `start "" /b powershell ... <nul %nul%` di `:install_popup_watcher` tetap kompatibel dengan Windows 7 (yang `schtasks /run`-nya kadang gagal di lingkungan service-pack lama).
+- `Reset-TrialCounters` memanggil `Get-ItemProperty -ErrorAction Stop` lalu `Remove-ItemProperty` di blok try/catch supaya nilai yang sudah tidak ada tidak menimbulkan log spam.
+- Jadwal 5 menit memakai `/sc minute /mo 5` di Windows 7+ — sintaks yang didukung sejak XP.
+
+### Verifikasi CI
+- `.github/workflows/windows-smoke.yml` job `popup-watcher` diperluas: memastikan 9 frasa pemicu hadir, memastikan `Reset-TrialCounters` ada, dan menambahkan guard yang melarang `Lifetime license` masuk ke daftar `Triggers`. Job `trial-resetter` menambah probe untuk skedul `/sc minute /mo 5`.
+
+---
+
 ## v1.9.9 - 2026-04-26
 
 ### Baru
