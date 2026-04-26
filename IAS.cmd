@@ -1,4 +1,4 @@
-@set iasver=1.9.11
+@set iasver=1.9.13
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -732,23 +732,23 @@ call :ui_line
 echo:
 echo:
 call :log "Alur selesai, kode keluar %exit_code%"
+::  Iterasi sebelumnya:
+::    v1.9.10 -> `timeout /t 2 & exit /b` (auto-exit 2 detik, gagal saat
+::               stdin ter-redirect, exit instan).
+::    v1.9.11 -> `pause >nul <con`. Pada beberapa konfigurasi UAC handle
+::               <con tetap mewarisi state stdin parent, pause skip.
+::    v1.9.12 -> `cmd /k` di dalam `if (...)` block. User laporkan tetap
+::               close — dugaan: parser cmd memperlakukan `cmd /k` dalam
+::               parens block secara tak biasa, atau Start-Process -Verb
+::               RunAs membatasi spawn child dengan handle console.
+::    v1.9.13 -> Refactor: keluar dari `if (...)` block via goto, panggil
+::               `cmd /k` di top-level. Tambah fallback bulletproof:
+::               loop ping inf yang tidak bergantung stdin sama sekali.
+::               Kalau cmd /k ENTAH KENAPA tetap balik instan, kontrol
+::               jatuh ke loop ping yang menunggu user klik X di pojok.
 if %_unattended%==1 (
 if %_silent%==1 exit /b %exit_code%
-::  Sebelumnya pakai `timeout /t 2 & exit /b` yang exit otomatis 2 detik
-::  setelah aktivasi. Dalam praktik konsol-elevated yang dilahirkan via
-::  `Start-Process -Verb RunAs` di Normal_Activation.cmd kadang punya
-::  stdin yang sudah ter-redirect (bukan handle CON yang sebenarnya),
-::  membuat `timeout` exit dengan "Input redirection is not supported"
-::  dan langsung lanjut ke `exit /b`. Akibatnya konsol tertutup tanpa
-::  user sempat membaca pesan sukses. Sekarang kita tampilkan banner
-::  konfirmasi lalu menunggu keypress eksplisit dengan `<con` redirect
-::  supaya selalu baca dari device console asli, bukan stdin yang
-::  mungkin sudah ter-redirect.
-echo:
-call :ui_done "AKTIVASI SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
-echo:
-pause >nul <con
-exit /b %exit_code%
+goto :done_unattended_hold
 )
 
 if defined terminal (
@@ -760,18 +760,39 @@ pause
 )
 goto MainMenu
 
+:done_unattended_hold
+echo:
+call :ui_done "AKTIVASI SELESAI"
+echo:
+::  Strategi v1.9.13 (revisi):
+::  Lahirkan jendela konsol BARU yang fully detached, lalu biarkan elevated
+::  cmd ini exit. Jendela baru punya conhost sendiri, stdin/stdout sendiri,
+::  tidak terpengaruh state stdin parent yang ter-redirect oleh
+::  `Start-Process -Verb RunAs` di wrapper. Iterasi cmd /k inline dan
+::  pause <con tidak cukup karena tetap di proses tree elevated.
+::
+::  Fallback: kalau `start` gagal (rare), jatuh ke loop ping bulletproof
+::  yang menahan elevated cmd ini supaya tidak tutup sendiri (ping tidak
+::  peduli kondisi stdin sama sekali).
+set "_done_msg=AKTIVASI IDM SELESAI - tutup jendela ini dengan ketik exit lalu Enter, atau klik X di pojok kanan"
+start "IAS-NADIF Aktivasi Selesai" cmd /k "color 2F & cls & echo: & echo  %_done_msg% & echo:"
+if "%errorlevel%"=="0" (
+call :log "Spawned detached window via 'start cmd /k', exiting elevated cmd"
+exit /b %exit_code%
+)
+call :log "start cmd /k gagal, fallback ke loop ping di elevated cmd"
+:done_unattended_pingloop
+echo:
+call :ui_info "Jendela ini akan tetap terbuka. Klik tombol X di pojok kanan untuk menutup."
+ping 127.0.0.1 -n 60 %nul%
+goto :done_unattended_pingloop
+
 :done2
 
 call :log "Alur selesai, kode keluar %exit_code%"
 if %_unattended%==1 (
 if %_silent%==1 exit /b %exit_code%
-::  Lihat catatan di :done - pakai pause <con yang robust terhadap
-::  stdin yang sudah ter-redirect oleh elevation Start-Process.
-echo:
-call :ui_done "SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
-echo:
-pause >nul <con
-exit /b %exit_code%
+goto :done2_unattended_hold
 )
 
 if defined terminal (
@@ -782,6 +803,25 @@ choice /c 0 /n
 	pause
 	)
 	exit /b %exit_code%
+
+:done2_unattended_hold
+echo:
+call :ui_done "SELESAI"
+echo:
+::  Lihat catatan di :done_unattended_hold untuk strategi spawn detached
+::  cmd /k window di sini juga, dengan fallback loop ping.
+set "_done_msg=IAS-NADIF SELESAI - tutup jendela ini dengan ketik exit lalu Enter, atau klik X di pojok kanan"
+start "IAS-NADIF Selesai" cmd /k "color 2F & cls & echo: & echo  %_done_msg% & echo:"
+if "%errorlevel%"=="0" (
+call :log "Spawned detached window via 'start cmd /k', exiting elevated cmd"
+exit /b %exit_code%
+)
+call :log "start cmd /k gagal, fallback ke loop ping di elevated cmd"
+:done2_unattended_pingloop
+echo:
+call :ui_info "Jendela ini akan tetap terbuka. Klik tombol X di pojok kanan untuk menutup."
+ping 127.0.0.1 -n 60 %nul%
+goto :done2_unattended_pingloop
 
 ::========================================================================================================================================
 
