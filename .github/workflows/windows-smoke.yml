@@ -148,9 +148,12 @@ jobs:
           if ($c -notmatch 'goto :done_unattended_pingloop' -or $c -notmatch 'goto :done2_unattended_pingloop') {
             throw 'IAS.cmd missing `goto :done*_unattended_pingloop` infinite hold loop'
           }
-          # Pastikan timeout /t 2 lama tidak balik.
-          if ($c -match 'timeout /t 2 & exit /b') {
-            throw 'IAS.cmd still uses regressed `timeout /t 2 & exit /b`'
+          # Pastikan timeout /t 2 lama tidak balik di kode aktif (bukan komentar).
+          # Comment lines mulai dengan `::` boleh menyebut history.
+          $codeLines = ($c -split "`n") | Where-Object { $_ -notmatch '^\s*::' }
+          $codeJoined = $codeLines -join "`n"
+          if ($codeJoined -match 'timeout /t 2 & exit /b') {
+            throw 'IAS.cmd still uses regressed `timeout /t 2 & exit /b` in active code'
           }
           Write-Host 'OK: IAS.cmd spawns detached cmd /k + ping-loop fallback'
 
