@@ -27,8 +27,10 @@ set "ret=%errorlevel%"
 if not "%ret%"=="0" (
     echo [PETUNJUK] IAS.cmd mengembalikan kode %ret%. Lihat output layar atau jalankan dulu "Test_Script.cmd" untuk memeriksa lingkungan.
 )
-::  Pakai `<con` agar pause selalu membaca dari console asli, bukan stdin
-::  yang mungkin ter-redirect oleh `Start-Process -Verb RunAs` di langkah
-::  elevasi. Tanpa ini pause kadang exit instan dan jendela menutup sendiri.
-echo %* | find /i "/silent" >nul || pause <con
+::  IAS.cmd `:done` sekarang menahan jendela dengan `cmd /k` saat
+::  unattended-non-silent, jadi pause di wrapper redundant dan dilewati.
+::  Hanya pause kalau IAS.cmd return error supaya user lihat pesannya.
+if not "%ret%"=="0" (
+    echo %* | find /i "/silent" >nul || pause <con
+)
 endlocal & exit /b %ret%
