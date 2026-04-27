@@ -8,6 +8,20 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.12 - 2026-04-27
+
+### Perbaikan
+- **Konsol IAS masih bisa menutup sendiri walau v1.9.11 memakai `pause >nul <con`.** Pada sebagian sistem elevated, handle `<con` yang dibuka oleh `cmd.exe` dari `Start-Process -Verb RunAs` tidak valid (mis. konsol-anak yang dijalankan di service session atau user session dengan kebijakan console host berbeda). Akibatnya `pause` tetap baca EOF dan exit instan walau ada redirect `<con`, sehingga konsol menutup sendiri setelah banner "AKTIVASI SELESAI" — user tidak sempat membaca hasil.
+- `:done` dan `:done2` di `IAS.cmd` kini menahan konsol dengan `choice /c 0 /n` (tanpa redirect) di dalam loop. `choice` membaca input lewat Win32 Console API (`ReadConsoleInput`) langsung ke handle konsol, **bukan** via stdin, sehingga tidak terpengaruh stdin yang sudah ter-redirect oleh launcher. Konsol baru menutup setelah user **mengetik `0`** — mengikuti perilaku skrip asli Mandarin yang menampilkan `"按 0 键返回..."` dan menunggu `choice /c 0 /n`.
+- Banner pesan disesuaikan: `"AKTIVASI SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"` diganti menjadi `"AKTIVASI SELESAI"` + prompt `"Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"` agar instruksi sesuai dengan tombol yang diterima.
+
+### Kompatibilitas
+- Mode `/silent` tetap auto-exit tanpa wait (perilaku tidak berubah).
+- Flow interaktif (jalankan `IAS.cmd` tanpa flag, pilih opsi dari MainMenu) tetap memakai pola `choice /c 0 /n` + `goto MainMenu` yang sebelumnya sudah ada — tidak ada perubahan perilaku.
+- Launcher `Normal_Activation.cmd` / `Quick_Activation.cmd` / `Reset_Activation.cmd` tidak disentuh di versi ini; `pause <con` di akhir launcher tetap menjadi lapisan kedua (IAS sudah menahan konsol, jadi launcher hampir tidak pernah terpicu).
+
+---
+
 ## v1.9.11 - 2026-04-26
 
 ### Perbaikan

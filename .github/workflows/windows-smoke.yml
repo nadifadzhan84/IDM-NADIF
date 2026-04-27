@@ -123,22 +123,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: IAS.cmd uses pause <con in :done / :done2 unattended branch
+      - name: IAS.cmd holds console with choice /c 0 /n in :done / :done2 unattended branch
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
-          # Sebelumnya `:done` pakai `timeout /t 2 & exit /b` yang gampang
-          # gagal kalau stdin ter-redirect oleh elevasi `Start-Process -Verb
-          # RunAs`. Sekarang harus pakai `pause >nul <con` supaya selalu
-          # baca dari device console.
-          if ($c -notmatch 'pause >nul <con') {
-            throw 'IAS.cmd missing `pause >nul <con` — :done unattended branch must use it'
-          }
+          # v1.9.10 pakai `timeout /t 2 & exit /b` yang gampang gagal kalau
+          # stdin ter-redirect oleh elevasi `Start-Process -Verb RunAs`.
+          # v1.9.11 pakai `pause >nul <con` yang masih gagal di sebagian
+          # sistem karena handle `<con` tidak selalu valid di konsol
+          # elevated. v1.9.12 pakai `choice /c 0 /n` tanpa redirect —
+          # choice baca lewat Win32 Console API langsung ke handle
+          # console, bukan via stdin, sehingga selalu menahan konsol
+          # sampai user mengetik 0 (sesuai perilaku skrip asli Mandarin).
           if ($c -match ':done\s*\r?\n[\s\S]*?_unattended.*?timeout /t 2 & exit /b') {
             throw 'IAS.cmd :done still uses `timeout /t 2 & exit /b` in unattended branch'
           }
-          Write-Host 'OK: IAS.cmd :done uses pause >nul <con'
+          if ($c -notmatch ':_done_wait0[\s\S]*?choice /c 0 /n') {
+            throw 'IAS.cmd :done unattended branch must use `choice /c 0 /n` loop labeled :_done_wait0'
+          }
+          if ($c -notmatch ':_done2_wait0[\s\S]*?choice /c 0 /n') {
+            throw 'IAS.cmd :done2 unattended branch must use `choice /c 0 /n` loop labeled :_done2_wait0'
+          }
+          # Redirect `<con` di dekat `pause` atau `choice` di branch unattended
+          # adalah anti-pola: handle `<con` kadang invalid di konsol elevated
+          # sehingga pause/choice exit instan (EOF dibaca sebagai keypress).
+          if ($c -match ':done\s*\r?\n[\s\S]*?_unattended==1[\s\S]*?pause >nul <con') {
+            throw 'IAS.cmd :done must not use `pause >nul <con` in unattended branch; use choice /c 0 /n instead'
+          }
+          if ($c -match ':done2\s*\r?\n[\s\S]*?_unattended==1[\s\S]*?pause >nul <con') {
+            throw 'IAS.cmd :done2 must not use `pause >nul <con` in unattended branch; use choice /c 0 /n instead'
+          }
+          Write-Host 'OK: IAS.cmd :done / :done2 use choice /c 0 /n wait loop'
 
       - name: Wrapper scripts use pause <con (Normal/Quick/Reset_Activation.cmd)
         shell: pwsh

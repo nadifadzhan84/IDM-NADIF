@@ -1,4 +1,4 @@
-@set iasver=1.9.11
+@set iasver=1.9.12
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -734,20 +734,28 @@ echo:
 call :log "Alur selesai, kode keluar %exit_code%"
 if %_unattended%==1 (
 if %_silent%==1 exit /b %exit_code%
-::  Sebelumnya pakai `timeout /t 2 & exit /b` yang exit otomatis 2 detik
-::  setelah aktivasi. Dalam praktik konsol-elevated yang dilahirkan via
-::  `Start-Process -Verb RunAs` di Normal_Activation.cmd kadang punya
-::  stdin yang sudah ter-redirect (bukan handle CON yang sebenarnya),
-::  membuat `timeout` exit dengan "Input redirection is not supported"
-::  dan langsung lanjut ke `exit /b`. Akibatnya konsol tertutup tanpa
-::  user sempat membaca pesan sukses. Sekarang kita tampilkan banner
-::  konfirmasi lalu menunggu keypress eksplisit dengan `<con` redirect
-::  supaya selalu baca dari device console asli, bukan stdin yang
-::  mungkin sudah ter-redirect.
+::  Mode senyap /silent tetap exit otomatis. Untuk /act /frz /res yang
+::  dijalankan dari launcher (Normal_Activation / Quick_Activation /
+::  Reset_Activation) kita TIDAK boleh auto-close. Skrip asli Mandarin
+::  mengharuskan user mengetik 0 untuk menutup konsol, jadi kita tiru
+::  perilaku itu di sini: tampilkan banner sukses lalu tahan konsol
+::  dengan `choice /c 0 /n` sampai user benar-benar mengetik 0.
+::
+::  Penting: `choice` TIDAK di-redirect via `<con`. `choice` membaca
+::  input melalui Win32 Console API (ReadConsoleInput) langsung ke
+::  handle console, sehingga tidak terpengaruh stdin yang mungkin
+::  sudah ter-redirect oleh `Start-Process -Verb RunAs` dari launcher.
+::  Percobaan sebelumnya dengan `pause >nul <con` masih menutup
+::  sendiri karena handle `<con` tidak selalu valid di konsol
+::  elevated. `choice` tanpa redirect jauh lebih andal.
 echo:
-call :ui_done "AKTIVASI SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
+call :ui_done "AKTIVASI SELESAI"
 echo:
-pause >nul <con
+call :ui_prompt "Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"
+:_done_wait0
+choice /c 0 /n
+if errorlevel 2 goto _done_wait0
+if not errorlevel 1 goto _done_wait0
 exit /b %exit_code%
 )
 
@@ -765,12 +773,18 @@ goto MainMenu
 call :log "Alur selesai, kode keluar %exit_code%"
 if %_unattended%==1 (
 if %_silent%==1 exit /b %exit_code%
-::  Lihat catatan di :done - pakai pause <con yang robust terhadap
-::  stdin yang sudah ter-redirect oleh elevation Start-Process.
+::  Lihat catatan di :done. Kita pakai `choice /c 0 /n` tanpa redirect
+::  `<con` supaya membaca input lewat Win32 Console API langsung ke
+::  handle console - konsol tidak akan menutup sendiri walau stdin
+::  sudah ter-redirect oleh `Start-Process -Verb RunAs`.
 echo:
-call :ui_done "SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
+call :ui_done "PROSES SELESAI"
 echo:
-pause >nul <con
+call :ui_prompt "Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"
+:_done2_wait0
+choice /c 0 /n
+if errorlevel 2 goto _done2_wait0
+if not errorlevel 1 goto _done2_wait0
 exit /b %exit_code%
 )
 
