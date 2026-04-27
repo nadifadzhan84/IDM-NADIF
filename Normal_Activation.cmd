@@ -33,22 +33,21 @@ if not "%ret%"=="0" (
     echo [INFO] IAS.cmd selesai dengan kode 0 (sukses).
 )
 
-::  IAS.cmd v1.9.13+ sudah menahan konsol dengan `choice /c 0 /n` di
-::  :done_unattended / :done2_unattended, jadi kontrol tidak akan
-::  sampai ke sini kecuali IAS exit lewat jalur yang tidak terduga.
-::
-::  Tetapi sebagai safety net TAMBAHAN, kita pasang `choice /c 0 /n`
-::  (bukan `pause`) sebelum endlocal. `choice` baca lewat Win32
-::  Console API ke handle console langsung, bukan stdin, sehingga
-::  selalu menahan konsol walau stdin ter-redirect oleh elevasi
-::  `Start-Process -Verb RunAs`.
-echo %* | find /i "/silent" >nul
-if errorlevel 1 (
-    echo.
-    echo Ketik 0 untuk menutup konsol launcher.
-    :_launcher_wait0
-    choice /c 0 /n
-    if errorlevel 2 goto _launcher_wait0
-    if not errorlevel 1 goto _launcher_wait0
-)
+::  IAS.cmd v1.9.13+ sudah menahan konsol di :done_unattended /
+::  :done2_unattended, jadi kontrol biasanya tidak sampai ke sini.
+::  Safety net tambahan di bawah: `choice /c 0 /n` loop (bukan `pause`,
+::  dan bukan di dalam blok `if (...)` - label inside parens rentan
+::  misinterpretasi batch interpreter).
+echo %* | find /i "/silent" >nul && goto launcher_exit
+
+echo.
+echo Ketik 0 untuk menutup konsol launcher.
+goto launcher_wait
+
+:launcher_wait
+choice /c 0 /n
+if errorlevel 2 goto launcher_wait
+if not errorlevel 1 goto launcher_wait
+
+:launcher_exit
 endlocal & exit /b %ret%

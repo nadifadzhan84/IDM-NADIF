@@ -167,16 +167,33 @@ jobs:
           # membaca lewat Win32 Console API langsung ke handle console.
           foreach ($f in 'Normal_Activation.cmd','Quick_Activation.cmd','Reset_Activation.cmd') {
             $c = Get-Content -Raw -LiteralPath $f
-            if ($c -notmatch ':_launcher_wait0') {
-              throw ($f + ' must define :_launcher_wait0 label for choice wait loop')
+            if ($c -notmatch ':launcher_wait') {
+              throw ($f + ' must define :launcher_wait label for choice wait loop')
             }
             if ($c -notmatch 'choice /c 0 /n') {
               throw ($f + ' must use `choice /c 0 /n` wait loop (no `pause <con`)')
             }
+            # v1.9.14: `:launcher_wait` must be OUTSIDE any `if (...)` block.
+            # Labels inside parens are unreliable in batch interpreter.
+            # Guard: pastikan tidak ada ':launcher_wait' yang muncul di dalam
+            # blok if yang diawali dengan baris yang berakhir '(' dan belum
+            # ditutup dengan ')'.
+            $lines = $c -split "`r?`n"
+            $depth = 0
+            foreach ($line in $lines) {
+              # Rough depth tracker: count unmatched '(' vs ')' on each line.
+              $opens  = ([regex]::Matches($line, '\(')).Count
+              $closes = ([regex]::Matches($line, '\)')).Count
+              if ($line -match ':launcher_wait' -and $depth -gt 0) {
+                throw ($f + ' has :launcher_wait inside a parenthesized block - label in parens is unreliable in batch')
+              }
+              $depth = $depth + $opens - $closes
+              if ($depth -lt 0) { $depth = 0 }
+            }
             if ($c -match '/log') {} else {
               throw ($f + ' must pass `/log` to IAS.cmd so a log file is always produced')
             }
-            Write-Host ('OK: ' + $f + ' uses choice /c 0 /n + /log')
+            Write-Host ('OK: ' + $f + ' uses choice /c 0 /n + /log, label outside parens')
           }
 
       - name: Debug_Activation.cmd wrapper present and wires tee to log file
@@ -187,12 +204,19 @@ jobs:
             throw 'Debug_Activation.cmd is missing - it is needed for end-users to capture diagnostic logs when the console closes mid-activation'
           }
           $c = Get-Content -Raw -LiteralPath 'Debug_Activation.cmd'
-          foreach ($needle in @('Tee-Object','IAS-DEBUG-','Normal_Activation.cmd','choice /c 0 /n',':_debug_wait0')) {
+          foreach ($needle in @('Tee-Object','IAS-DEBUG-','Normal_Activation.cmd','choice /c 0 /n',':debug_wait','_debug_run.ps1')) {
             if ($c -notmatch [regex]::Escape($needle)) {
               throw ('Debug_Activation.cmd missing: ' + $needle)
             }
             Write-Host ('OK: Debug_Activation.cmd contains ' + $needle)
           }
+          # v1.9.14 regression: Debug_Activation.cmd harus TIDAK pakai
+          # `cmd /c` di argument PowerShell karena escape quoting-nya rusak
+          # untuk path ber-spasi seperti "C:\Users\John Doe\...".
+          if ($c -match 'cmd /c') {
+            throw 'Debug_Activation.cmd still uses `cmd /c` in PowerShell args - this breaks for paths with spaces. Use an external .ps1 script instead.'
+          }
+          Write-Host 'OK: Debug_Activation.cmd does not use `cmd /c` with escape-prone args'
 
       - name: Verify CRLF + ASCII hygiene
         shell: pwsh

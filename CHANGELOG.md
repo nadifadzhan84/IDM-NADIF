@@ -8,6 +8,27 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.14 - 2026-04-27
+
+### Perbaikan
+- **Debug_Activation.cmd crash dengan path ber-spasi.** User menjalankan dari folder `C:\Users\Yoyong Masamba\Downloads\Compressed\New folder\IDM-NADIF-v1.9.13\` dan error: `'C:\Users\Yoyong' is not recognized as an internal or external command`. Akar masalah: wrapper v1.9.13 pakai `cmd /c \"\"%NORMAL%\"\"` di dalam `powershell -Command`, tapi escape quoting `\"\"` di-interpretasi sebagai dua empty strings oleh PowerShell tokenizer sebelum cmd.exe menerima path, sehingga path ter-split di spasi pertama.
+  - **Fix:** generate file `.ps1` sementara (`_debug_run.ps1`) yang menerima path sebagai `$args[0]`/`$args[1]`. PowerShell `&` operator handle quoting argv secara otomatis tanpa manual escape. File `.ps1` dihapus setelah eksekusi.
+- **Launcher `:_launcher_wait0` masih di dalam blok `if (...)`.** Bug sama yang kemarin ditemukan di IAS.cmd :done. Pindah label ke luar blok — pakai `goto launcher_exit` untuk skip wait di mode `/silent`, atau `goto launcher_wait` untuk masuk loop `choice /c 0 /n`. Label `:launcher_wait` dan `:launcher_exit` sekarang di level atas file, di luar parens manapun.
+
+### Perubahan
+- `IAS.cmd` v1.9.13 → v1.9.14 (konsistensi versi).
+- `Debug_Activation.cmd`: dari `cmd /c` inline ke generate `_debug_run.ps1` sementara. Label wait di-rename ke `:debug_wait` / `:final_wait`.
+- Launcher `Normal_Activation.cmd`, `Quick_Activation.cmd`, `Reset_Activation.cmd`: restrukturisasi flow control, label wait keluar dari parens.
+- `.github/workflows/windows-smoke.yml`:
+  - Guard baru: scan depth parenthesis untuk memastikan `:launcher_wait` di launcher tidak pernah di dalam blok `if (...)`.
+  - Guard baru: `Debug_Activation.cmd` wajib pakai `_debug_run.ps1` pattern, TIDAK boleh pakai `cmd /c` di argument PowerShell (regresi v1.9.13).
+
+### Kompatibilitas
+- `/silent` flag di launcher tetap skip wait loop via `goto launcher_exit` — perilaku tidak berubah.
+- Debug output log di folder ekstrak + `%SystemRoot%\Temp\IAS-*.log` tidak berubah.
+
+---
+
 ## v1.9.13 - 2026-04-27
 
 ### Perbaikan

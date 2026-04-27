@@ -33,15 +33,18 @@ if not "%ret%"=="0" (
     echo [INFO] IAS.cmd selesai dengan kode 0 (sukses).
 )
 
-::  Safety net: `choice /c 0 /n` (bukan `pause`) supaya konsol tidak
-::  menutup sendiri walau stdin ter-redirect oleh elevasi.
-echo %* | find /i "/silent" >nul
-if errorlevel 1 (
-    echo.
-    echo Ketik 0 untuk menutup konsol launcher.
-    :_launcher_wait0
-    choice /c 0 /n
-    if errorlevel 2 goto _launcher_wait0
-    if not errorlevel 1 goto _launcher_wait0
-)
+::  Safety net: `choice /c 0 /n` loop (bukan di dalam `if (...)` block
+::  supaya label tidak di dalam parens).
+echo %* | find /i "/silent" >nul && goto launcher_exit
+
+echo.
+echo Ketik 0 untuk menutup konsol launcher.
+goto launcher_wait
+
+:launcher_wait
+choice /c 0 /n
+if errorlevel 2 goto launcher_wait
+if not errorlevel 1 goto launcher_wait
+
+:launcher_exit
 endlocal & exit /b %ret%

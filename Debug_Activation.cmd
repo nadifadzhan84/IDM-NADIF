@@ -1,27 +1,19 @@
 @echo off
 ::  Debug_Activation.cmd - DIAGNOSTIK
 ::
-::  File ini berguna kalau konsol aktivasi normal menutup sendiri sebelum
-::  kamu sempat membaca pesan error. Cara kerjanya:
+::  Wrapper ini stream SEMUA output dari Normal_Activation.cmd ke file log
+::  `IAS-DEBUG-<timestamp>.log` (di folder yang sama), sekaligus menampilkan
+::  di layar, dan TIDAK PERNAH auto-close apapun yang terjadi. Dipakai
+::  untuk capture log kalau konsol aktivasi normal masih menutup sendiri.
 ::
-::  1. Stream SEMUA output (stdout + stderr) dari Normal_Activation.cmd ke
-::     sebuah file log `IAS-DEBUG-<timestamp>.log` di folder yang sama
-::     dengan file ini, dan sekaligus menampilkannya di layar.
-::  2. Tidak pernah auto-close apapun yang terjadi. Setelah selesai (atau
-::     crash di tengah jalan), konsol menampilkan lokasi log dan menunggu
-::     user mengetik `0` untuk menutup.
-::  3. Juga melampirkan semua file `%SystemRoot%\Temp\IAS-*.log` yang
-::     ditulis oleh IAS.cmd selama proses (flag `/log` di launcher).
-::
-::  Cara pakai:
-::    Klik kanan file ini -> Run as administrator
-::    Setelah proses selesai, ambil file IAS-DEBUG-*.log + file di
-::    %SystemRoot%\Temp\IAS-*.log lalu kirim ke pengembang.
+::  Cara pakai: klik kanan file ini -> Run as administrator.
+::  Setelah selesai, kirim IAS-DEBUG-*.log + %%SystemRoot%%\Temp\IAS-*.log
+::  ke pengembang.
 ::
 chcp 936 >nul 2>&1
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions
 
-::  Self-elevate kalau belum admin.
+::  Self-elevate.
 fltmc >nul 2>&1
 if %errorlevel% NEQ 0 (
     echo [PETUNJUK] Meminta hak administrator untuk Debug_Activation...
@@ -38,10 +30,11 @@ set "HERE=%~dp0"
 set "NORMAL=%HERE%Normal_Activation.cmd"
 if not exist "%NORMAL%" (
     echo [KESALAHAN] Normal_Activation.cmd tidak ditemukan di %HERE%
-    goto :final_wait
+    goto final_wait
 )
 
 ::  Build timestamp tanpa karakter illegal di path.
+set "TS="
 for /f %%a in ('powershell -NoProfile -Command "(Get-Date).ToString('yyyyMMdd-HHmmss')"') do set "TS=%%a"
 if not defined TS set "TS=nostamp"
 set "DEBUG_LOG=%HERE%IAS-DEBUG-%TS%.log"
@@ -59,18 +52,31 @@ echo [INFO] Menjalankan Normal_Activation.cmd dengan tee ke log file.
 echo [INFO] Konsol TIDAK akan menutup otomatis walau Normal_Activation crash.
 echo.
 
-::  Jalankan Normal_Activation.cmd di konsol yang sama, capture stdout+stderr
-::  ke log file dan juga tampilkan di layar pakai PowerShell Tee-Object.
+::  PENTING: path NORMAL dan DEBUG_LOG kemungkinan mengandung spasi
+::  (mis. "C:\Users\John Doe\..."). Di v1.9.13 kita pakai `cmd /c "..."`
+::  di dalam argumen PowerShell, yang ternyata merusak quoting path
+::  ber-spasi (error "'C:\Users\Yoyong' is not recognized").
 ::
-::  `cmd /c` memastikan kalau Normal_Activation melakukan `exit` (bukan
-::  `exit /b`) yang mati hanya cmd anak itu, BUKAN konsol Debug ini.
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ErrorActionPreference = 'Continue';" ^
-  "$log = '%DEBUG_LOG%';" ^
-  "'== Debug_Activation.cmd started ' + (Get-Date).ToString('s') + ' ==' | Tee-Object -FilePath $log;" ^
-  "try { cmd /c \"\"%NORMAL%\"\" 2>&1 | Tee-Object -FilePath $log -Append } catch { $_ | Tee-Object -FilePath $log -Append };" ^
-  "'== Debug_Activation.cmd ended   ' + (Get-Date).ToString('s') + ' ==' | Tee-Object -FilePath $log -Append"
+::  v1.9.14: generate script .ps1 sementara yang menerima path sebagai
+::  $args[0]/$args[1]. PowerShell `&` operator spawn cmd.exe internal
+::  dengan quoting argv yang benar, tanpa kita harus escape manual.
+set "DEBUG_PS1=%HERE%_debug_run.ps1"
+>"%DEBUG_PS1%" echo $ErrorActionPreference = 'Continue'
+>>"%DEBUG_PS1%" echo $log  = $args[0]
+>>"%DEBUG_PS1%" echo $norm = $args[1]
+>>"%DEBUG_PS1%" echo ('== Debug_Activation.cmd started ' + (Get-Date).ToString('s') + ' ==') ^| Tee-Object -FilePath $log
+>>"%DEBUG_PS1%" echo ('Normal_Activation path: ' + $norm) ^| Tee-Object -FilePath $log -Append
+>>"%DEBUG_PS1%" echo ('Debug log path       : ' + $log) ^| Tee-Object -FilePath $log -Append
+>>"%DEBUG_PS1%" echo '---- Normal_Activation output ----' ^| Tee-Object -FilePath $log -Append
+>>"%DEBUG_PS1%" echo try { ^& $norm 2^>^&1 ^| Tee-Object -FilePath $log -Append } catch { $_.Exception.Message ^| Tee-Object -FilePath $log -Append }
+>>"%DEBUG_PS1%" echo ('---- Exit code: ' + $LASTEXITCODE + ' ----') ^| Tee-Object -FilePath $log -Append
+>>"%DEBUG_PS1%" echo ('== Debug_Activation.cmd ended   ' + (Get-Date).ToString('s') + ' ==') ^| Tee-Object -FilePath $log -Append
+>>"%DEBUG_PS1%" echo exit $LASTEXITCODE
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%DEBUG_PS1%" "%DEBUG_LOG%" "%NORMAL%"
 set "ret=%errorlevel%"
+
+del /f /q "%DEBUG_PS1%" >nul 2>&1
 
 echo.
 echo ============================================================
@@ -91,8 +97,10 @@ echo.
 
 :final_wait
 echo Ketik 0 untuk menutup konsol Debug Activation.
-:_debug_wait0
+goto debug_wait
+
+:debug_wait
 choice /c 0 /n
-if errorlevel 2 goto _debug_wait0
-if not errorlevel 1 goto _debug_wait0
+if errorlevel 2 goto debug_wait
+if not errorlevel 1 goto debug_wait
 endlocal & exit /b %ret%
