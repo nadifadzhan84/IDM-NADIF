@@ -8,6 +8,91 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.15 - 2026-04-27
+
+### Perbaikan KRITIS
+- **Konsol crash setelah `Menulis nama email dan serial acak ke registri`** dengan error `Normal_Activation.cmd : was unexpected at this time.` Akar masalah: fungsi `:_color` dan `:_color2` memakai struktur `if %_NCS% EQU 1 (echo %esc%[%~1%~2%esc%[%~3%~4%esc%[0m) else (...)`. Ketika `:install_popup_watcher` / `:install_trial_resetter` memanggil `:ui_info "Memasang pengawas popup fake-serial (scheduled task)"`, pesan mengandung `)` — yang **menutup blok `if` lebih awal** di saat batch parser membaca blok. Ini error klasik: percent-expansion parse-time + kurung tutup di argumen + blok parenthesized = cmd crash.
+  - User menjalankan v1.9.14, Debug_Activation.cmd menangkap log: reg add HKCU/Serial sukses, lalu langsung cmd mati. Log ini langsung menunjuk lokasi crash.
+  - **Fix:** restrukturisasi `:_color` dan `:_color2` memakai `if ... goto <label>` + label terpisah di luar parens. Echo dengan `%~N` yang mengandung `)` sekarang dieksekusi di top-level scope, tidak di dalam blok. Mengikuti prinsip yang sama dengan fix label-wait di v1.9.13/v1.9.14.
+- Pesan `"Memasang pengawas popup fake-serial (scheduled task)"` dan `"Memasang resetter trial IDM (scheduled task tiap 5 menit)"` tidak perlu diubah — struktur `:_color2` yang baru aman untuk pesan apapun termasuk yang mengandung kurung.
+
+### Perubahan
+- `IAS.cmd` v1.9.14 → v1.9.15.
+- `:_color` dan `:_color2`: struktur goto-based, tidak lagi memakai `if (...) else (...)` parenthesized.
+- `.github/workflows/windows-smoke.yml`:
+  - Guard baru: scan `:_color` dan `:_color2` wajib memakai `goto` label pattern, TIDAK boleh memakai `if ... (echo %~N...) else (...)` pattern.
+  - Guard baru: setiap `call :ui_info`, `call :ui_done`, `call :ui_prompt`, dll. diperbolehkan mengandung `(` dan `)` tanpa masalah (tidak perlu escape) — memastikan tim tidak mencoba memperbaiki bug dengan menghapus kurung dari pesan.
+
+### Teknis
+- Percent-substitution di cmd.exe terjadi di parse time sebelum blok `if (...)` selesai dibaca. Jika `%~N` memuat `)` (bukan bagian pasangan `(...)` balanced), batch parser menutup blok di posisi `)`, lalu melihat sisa pesan + ` else (...)` sebagai sintaks aneh → `was unexpected at this time.`
+- Perbaikan dengan `goto` menghindari masalah ini karena echo dengan `%~N` dijalankan di scope top-level di mana kurung tidak diinterpretasi sebagai block delimiter.
+
+---
+
+## v1.9.14 - 2026-04-27
+
+### Perbaikan
+- **Debug_Activation.cmd crash dengan path ber-spasi.** User menjalankan dari folder `C:\Users\Yoyong Masamba\Downloads\Compressed\New folder\IDM-NADIF-v1.9.13\` dan error: `'C:\Users\Yoyong' is not recognized as an internal or external command`. Akar masalah: wrapper v1.9.13 pakai `cmd /c \"\"%NORMAL%\"\"` di dalam `powershell -Command`, tapi escape quoting `\"\"` di-interpretasi sebagai dua empty strings oleh PowerShell tokenizer sebelum cmd.exe menerima path, sehingga path ter-split di spasi pertama.
+  - **Fix:** generate file `.ps1` sementara (`_debug_run.ps1`) yang menerima path sebagai `$args[0]`/`$args[1]`. PowerShell `&` operator handle quoting argv secara otomatis tanpa manual escape. File `.ps1` dihapus setelah eksekusi.
+- **Launcher `:_launcher_wait0` masih di dalam blok `if (...)`.** Bug sama yang kemarin ditemukan di IAS.cmd :done. Pindah label ke luar blok — pakai `goto launcher_exit` untuk skip wait di mode `/silent`, atau `goto launcher_wait` untuk masuk loop `choice /c 0 /n`. Label `:launcher_wait` dan `:launcher_exit` sekarang di level atas file, di luar parens manapun.
+
+### Perubahan
+- `IAS.cmd` v1.9.13 → v1.9.14 (konsistensi versi).
+- `Debug_Activation.cmd`: dari `cmd /c` inline ke generate `_debug_run.ps1` sementara. Label wait di-rename ke `:debug_wait` / `:final_wait`.
+- Launcher `Normal_Activation.cmd`, `Quick_Activation.cmd`, `Reset_Activation.cmd`: restrukturisasi flow control, label wait keluar dari parens.
+- `.github/workflows/windows-smoke.yml`:
+  - Guard baru: scan depth parenthesis untuk memastikan `:launcher_wait` di launcher tidak pernah di dalam blok `if (...)`.
+  - Guard baru: `Debug_Activation.cmd` wajib pakai `_debug_run.ps1` pattern, TIDAK boleh pakai `cmd /c` di argument PowerShell (regresi v1.9.13).
+
+### Kompatibilitas
+- `/silent` flag di launcher tetap skip wait loop via `goto launcher_exit` — perilaku tidak berubah.
+- Debug output log di folder ekstrak + `%SystemRoot%\Temp\IAS-*.log` tidak berubah.
+
+---
+
+## v1.9.13 - 2026-04-27
+
+### Perbaikan
+- **Konsol masih bisa menutup sendiri di TENGAH alur aktivasi, bukan hanya di `:done`.** Laporan user: "masih close sendirinya saat berjalan aktivasi IDM dan saat sudah mau selesai langsung close cmd-nya". Akar masalah tambahan yang ditemukan:
+  1. **Label `:_done_wait0` sebelumnya berada di dalam blok `if %_unattended%==1 (...)`**. Label di dalam parenthesis rentan di-misinterpretasi oleh batch interpreter (terutama ketika delayed expansion aktif atau goto dari dalam blok yang sama). Pada sebagian sistem, kombinasi ini menyebabkan `exit /b` eksekusi sebelum `choice` sempat membaca input. v1.9.13 memindah kedua label wait loop ke luar blok — `:done_unattended` dan `:done2_unattended` sekarang jadi section terpisah.
+  2. **Launcher `Normal_Activation.cmd` / `Quick_Activation.cmd` / `Reset_Activation.cmd` masih pakai `pause <con`** — sama seperti `pause >nul <con` di IAS, ini gagal di sebagian sistem elevated. v1.9.13 ganti ke pola yang sama: loop `choice /c 0 /n` dengan label `:_launcher_wait0` sebagai safety net tambahan.
+
+### Baru
+- **`Debug_Activation.cmd` — wrapper diagnostik.** Klik kanan file ini → Run as administrator, maka ia akan:
+  - Self-elevate otomatis (seperti launcher lain).
+  - Jalankan `Normal_Activation.cmd` dengan PowerShell `Tee-Object` → SEMUA stdout + stderr ditangkap ke `IAS-DEBUG-<timestamp>.log` di folder yang sama, DAN tetap ditampilkan di layar.
+  - SELALU menahan konsol di akhir dengan `choice /c 0 /n` apapun yang terjadi (crash di tengah, exit non-zero, atau sukses).
+  - Menampilkan daftar file `%SystemRoot%\Temp\IAS-*.log` yang ditulis oleh IAS selama proses.
+  - Tujuan: memudahkan user mengirim log lengkap ke pengembang kalau masalah persisten.
+- **Launcher utama sekarang otomatis mengaktifkan flag `/log`.** `Normal_Activation.cmd` → `IAS.cmd /act /log`, `Quick_Activation.cmd` → `IAS.cmd /frz /log`, `Reset_Activation.cmd` → `IAS.cmd /res /log`. File log akan selalu tersedia di `%SystemRoot%\Temp\IAS-*.log` tanpa perlu user menambah flag manual. Path log dicantumkan di banner akhir `:done_unattended` / `:done2_unattended`.
+
+### Perubahan
+- `IAS.cmd` v1.9.12 → v1.9.13.
+- Struktur `:done` dan `:done2` dipecah jadi dua label terpisah (`:done_unattended` / `:done2_unattended`) untuk menghindari risiko label-in-parens.
+- `.github/workflows/windows-smoke.yml` CI guard diupdate: cek `:_launcher_wait0` + `/log` di launcher, cek `Debug_Activation.cmd` punya `Tee-Object` + label wait + referensi ke Normal_Activation.
+- CRLF hygiene check ditambah `Debug_Activation.cmd`.
+
+### Kompatibilitas
+- Mode `/silent` tetap auto-exit tanpa wait (perilaku tidak berubah).
+- Flow interaktif tanpa flag (jalankan `IAS.cmd` langsung) tetap pakai MainMenu → `choice /c 0`.
+- `Debug_Activation.cmd` memanggil Normal_Activation via `cmd /c` di dalam PowerShell child supaya `exit` (bukan `exit /b`) di dalam Normal_Activation tidak membunuh konsol Debug.
+
+---
+
+## v1.9.12 - 2026-04-27
+
+### Perbaikan
+- **Konsol IAS masih bisa menutup sendiri walau v1.9.11 memakai `pause >nul <con`.** Pada sebagian sistem elevated, handle `<con` yang dibuka oleh `cmd.exe` dari `Start-Process -Verb RunAs` tidak valid (mis. konsol-anak yang dijalankan di service session atau user session dengan kebijakan console host berbeda). Akibatnya `pause` tetap baca EOF dan exit instan walau ada redirect `<con`, sehingga konsol menutup sendiri setelah banner "AKTIVASI SELESAI" — user tidak sempat membaca hasil.
+- `:done` dan `:done2` di `IAS.cmd` kini menahan konsol dengan `choice /c 0 /n` (tanpa redirect) di dalam loop. `choice` membaca input lewat Win32 Console API (`ReadConsoleInput`) langsung ke handle konsol, **bukan** via stdin, sehingga tidak terpengaruh stdin yang sudah ter-redirect oleh launcher. Konsol baru menutup setelah user **mengetik `0`** — mengikuti perilaku skrip asli Mandarin yang menampilkan `"按 0 键返回..."` dan menunggu `choice /c 0 /n`.
+- Banner pesan disesuaikan: `"AKTIVASI SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"` diganti menjadi `"AKTIVASI SELESAI"` + prompt `"Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"` agar instruksi sesuai dengan tombol yang diterima.
+
+### Kompatibilitas
+- Mode `/silent` tetap auto-exit tanpa wait (perilaku tidak berubah).
+- Flow interaktif (jalankan `IAS.cmd` tanpa flag, pilih opsi dari MainMenu) tetap memakai pola `choice /c 0 /n` + `goto MainMenu` yang sebelumnya sudah ada — tidak ada perubahan perilaku.
+- Launcher `Normal_Activation.cmd` / `Quick_Activation.cmd` / `Reset_Activation.cmd` tidak disentuh di versi ini; `pause <con` di akhir launcher tetap menjadi lapisan kedua (IAS sudah menahan konsol, jadi launcher hampir tidak pernah terpicu).
+
+---
+
 ## v1.9.11 - 2026-04-26
 
 ### Perbaikan

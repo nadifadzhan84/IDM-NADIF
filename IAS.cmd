@@ -1,4 +1,4 @@
-@set iasver=1.9.11
+@set iasver=1.9.15
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -732,24 +732,7 @@ call :ui_line
 echo:
 echo:
 call :log "Alur selesai, kode keluar %exit_code%"
-if %_unattended%==1 (
-if %_silent%==1 exit /b %exit_code%
-::  Sebelumnya pakai `timeout /t 2 & exit /b` yang exit otomatis 2 detik
-::  setelah aktivasi. Dalam praktik konsol-elevated yang dilahirkan via
-::  `Start-Process -Verb RunAs` di Normal_Activation.cmd kadang punya
-::  stdin yang sudah ter-redirect (bukan handle CON yang sebenarnya),
-::  membuat `timeout` exit dengan "Input redirection is not supported"
-::  dan langsung lanjut ke `exit /b`. Akibatnya konsol tertutup tanpa
-::  user sempat membaca pesan sukses. Sekarang kita tampilkan banner
-::  konfirmasi lalu menunggu keypress eksplisit dengan `<con` redirect
-::  supaya selalu baca dari device console asli, bukan stdin yang
-::  mungkin sudah ter-redirect.
-echo:
-call :ui_done "AKTIVASI SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
-echo:
-pause >nul <con
-exit /b %exit_code%
-)
+if %_unattended%==1 goto done_unattended
 
 if defined terminal (
 call :ui_prompt "Tekan 0 untuk kembali ke dashboard"
@@ -760,19 +743,43 @@ pause
 )
 goto MainMenu
 
+::========================================================================================================================================
+
+:done_unattended
+
+::  Mode senyap /silent tetap exit otomatis. Untuk /act /frz /res yang
+::  dijalankan dari launcher (Normal_Activation / Quick_Activation /
+::  Reset_Activation) kita TIDAK boleh auto-close. Skrip asli Mandarin
+::  menampilkan prompt "ketik 0 untuk menutup", kita tiru di sini.
+::
+::  IMPORTANT: label :_done_wait0 SENGAJA dipisah dari blok `if (...)` di
+::  atas. Label di dalam parenthesis rentan bug karena batch kadang
+::  memperlakukannya berbeda (terutama dengan delayed expansion atau
+::  goto ke label di dalam blok yang sama). Pindah ke label terpisah
+::  menghindari risiko "konsol exit diam-diam" di alur ini.
+if %_silent%==1 exit /b %exit_code%
+echo:
+call :ui_done "AKTIVASI SELESAI"
+echo:
+if defined log_file (
+echo File log: %log_file%
+echo:
+)
+call :ui_prompt "Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"
+:_done_wait0
+::  `choice /c 0 /n` tanpa redirect `<con`. choice membaca lewat Win32
+::  Console API langsung ke handle console, bukan stdin, sehingga tetap
+::  menahan konsol walau launcher `Start-Process -Verb RunAs` sudah
+::  me-redirect stdin.
+choice /c 0 /n
+if errorlevel 2 goto _done_wait0
+if not errorlevel 1 goto _done_wait0
+exit /b %exit_code%
+
 :done2
 
 call :log "Alur selesai, kode keluar %exit_code%"
-if %_unattended%==1 (
-if %_silent%==1 exit /b %exit_code%
-::  Lihat catatan di :done - pakai pause <con yang robust terhadap
-::  stdin yang sudah ter-redirect oleh elevation Start-Process.
-echo:
-call :ui_done "SELESAI - TEKAN TOMBOL APA SAJA UNTUK MENUTUP"
-echo:
-pause >nul <con
-exit /b %exit_code%
-)
+if %_unattended%==1 goto done2_unattended
 
 if defined terminal (
 call :ui_prompt "Tekan 0 untuk keluar dari konsol"
@@ -782,6 +789,27 @@ choice /c 0 /n
 	pause
 	)
 	exit /b %exit_code%
+
+::========================================================================================================================================
+
+:done2_unattended
+
+::  Lihat catatan di :done_unattended - label dipisah dari blok `if` supaya
+::  batch tidak salah tafsir goto ke label di dalam parenthesis.
+if %_silent%==1 exit /b %exit_code%
+echo:
+call :ui_done "PROSES SELESAI"
+echo:
+if defined log_file (
+echo File log: %log_file%
+echo:
+)
+call :ui_prompt "Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"
+:_done2_wait0
+choice /c 0 /n
+if errorlevel 2 goto _done2_wait0
+if not errorlevel 1 goto _done2_wait0
+exit /b %exit_code%
 
 ::========================================================================================================================================
 
@@ -1368,20 +1396,26 @@ exit /b
 
 :_color
 
-if %_NCS% EQU 1 (
-echo %esc%[%~1%~2%esc%[0m
-) else (
+::  v1.9.15: pakai struktur goto, BUKAN `if (...) else (...)`.
+::  Pesan yang mengandung kurung (mis. "(scheduled task)") jika di-echo
+::  DI DALAM blok if parenthesized, kurung tutupnya akan menutup blok
+::  lebih awal di parse time -> cmd error " was unexpected at this time".
+if %_NCS% EQU 1 goto _color_esc
 %psc% write-host -back '%1' -fore '%2' '%3'
-)
+exit /b
+:_color_esc
+echo %esc%[%~1%~2%esc%[0m
 exit /b
 
 :_color2
 
-if %_NCS% EQU 1 (
-echo %esc%[%~1%~2%esc%[%~3%~4%esc%[0m
-) else (
+::  v1.9.15: sama seperti :_color, struktur goto untuk menghindari
+::  penutupan blok dini ketika argumen mengandung kurung.
+if %_NCS% EQU 1 goto _color2_esc
 %psc% write-host -back '%1' -fore '%2' '%3' -NoNewline; write-host -back '%4' -fore '%5' '%6'
-)
+exit /b
+:_color2_esc
+echo %esc%[%~1%~2%esc%[%~3%~4%esc%[0m
 exit /b
 
 ::========================================================================================================================================

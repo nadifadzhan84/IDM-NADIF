@@ -21,14 +21,29 @@ if %errorlevel% NEQ 0 (
     exit /b
 )
 
-echo [INFO] Memanggil IAS.cmd /res (reset aktivasi atau masa uji coba)...
-call "%IAS%" /res %*
+echo [INFO] Memanggil IAS.cmd /res /log (reset aktivasi atau masa uji coba)...
+echo [INFO] Log detail akan ditulis ke %%SystemRoot%%\Temp\IAS-*.log
+echo.
+call "%IAS%" /res /log %*
 set "ret=%errorlevel%"
+echo.
 if not "%ret%"=="0" (
     echo [PETUNJUK] IAS.cmd mengembalikan kode %ret%. Lihat output layar atau jalankan dulu "Test_Script.cmd" untuk memeriksa lingkungan.
+) else (
+    echo [INFO] IAS.cmd selesai dengan kode 0 (sukses).
 )
-::  Pakai `<con` agar pause selalu membaca dari console asli, bukan stdin
-::  yang mungkin ter-redirect oleh `Start-Process -Verb RunAs` di langkah
-::  elevasi. Tanpa ini pause kadang exit instan dan jendela menutup sendiri.
-echo %* | find /i "/silent" >nul || pause <con
+
+::  Safety net: `choice /c 0 /n` loop (bukan di dalam `if (...)` block).
+echo %* | find /i "/silent" >nul && goto launcher_exit
+
+echo.
+echo Ketik 0 untuk menutup konsol launcher.
+goto launcher_wait
+
+:launcher_wait
+choice /c 0 /n
+if errorlevel 2 goto launcher_wait
+if not errorlevel 1 goto launcher_wait
+
+:launcher_exit
 endlocal & exit /b %ret%

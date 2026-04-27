@@ -123,40 +123,137 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: IAS.cmd uses pause <con in :done / :done2 unattended branch
+      - name: IAS.cmd holds console with choice /c 0 /n in :done / :done2 unattended branch
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
-          # Sebelumnya `:done` pakai `timeout /t 2 & exit /b` yang gampang
-          # gagal kalau stdin ter-redirect oleh elevasi `Start-Process -Verb
-          # RunAs`. Sekarang harus pakai `pause >nul <con` supaya selalu
-          # baca dari device console.
-          if ($c -notmatch 'pause >nul <con') {
-            throw 'IAS.cmd missing `pause >nul <con` — :done unattended branch must use it'
-          }
+          # v1.9.10 pakai `timeout /t 2 & exit /b` yang gampang gagal kalau
+          # stdin ter-redirect oleh elevasi `Start-Process -Verb RunAs`.
+          # v1.9.11 pakai `pause >nul <con` yang masih gagal di sebagian
+          # sistem karena handle `<con` tidak selalu valid di konsol
+          # elevated. v1.9.12 pakai `choice /c 0 /n` tanpa redirect —
+          # choice baca lewat Win32 Console API langsung ke handle
+          # console, bukan via stdin, sehingga selalu menahan konsol
+          # sampai user mengetik 0 (sesuai perilaku skrip asli Mandarin).
           if ($c -match ':done\s*\r?\n[\s\S]*?_unattended.*?timeout /t 2 & exit /b') {
             throw 'IAS.cmd :done still uses `timeout /t 2 & exit /b` in unattended branch'
           }
-          Write-Host 'OK: IAS.cmd :done uses pause >nul <con'
+          if ($c -notmatch ':_done_wait0[\s\S]*?choice /c 0 /n') {
+            throw 'IAS.cmd :done unattended branch must use `choice /c 0 /n` loop labeled :_done_wait0'
+          }
+          if ($c -notmatch ':_done2_wait0[\s\S]*?choice /c 0 /n') {
+            throw 'IAS.cmd :done2 unattended branch must use `choice /c 0 /n` loop labeled :_done2_wait0'
+          }
+          # Redirect `<con` di dekat `pause` atau `choice` di branch unattended
+          # adalah anti-pola: handle `<con` kadang invalid di konsol elevated
+          # sehingga pause/choice exit instan (EOF dibaca sebagai keypress).
+          if ($c -match ':done\s*\r?\n[\s\S]*?_unattended==1[\s\S]*?pause >nul <con') {
+            throw 'IAS.cmd :done must not use `pause >nul <con` in unattended branch; use choice /c 0 /n instead'
+          }
+          if ($c -match ':done2\s*\r?\n[\s\S]*?_unattended==1[\s\S]*?pause >nul <con') {
+            throw 'IAS.cmd :done2 must not use `pause >nul <con` in unattended branch; use choice /c 0 /n instead'
+          }
+          Write-Host 'OK: IAS.cmd :done / :done2 use choice /c 0 /n wait loop'
 
-      - name: Wrapper scripts use pause <con (Normal/Quick/Reset_Activation.cmd)
+      - name: IAS.cmd :_color / :_color2 use goto-based structure (not parenthesized if-else)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # v1.9.15 regression check: pesan seperti "(scheduled task)" yang
+          # mengandung `)` di-echo lewat :_color2. Jika :_color / :_color2
+          # memakai `if %_NCS% EQU 1 (echo %~1%~2%~3%~4) else (...)`, kurung
+          # tutup di %~N akan MENUTUP blok if di parse time -> cmd crash:
+          #   `Normal_Activation.cmd : was unexpected at this time.`
+          # Fix: pakai `if %_NCS% EQU 1 goto <label>` dengan label terpisah
+          # di top-level scope (di luar parens manapun).
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          foreach ($fn in ':_color',':_color2') {
+            # Cari definisi fungsi dan body-nya sampai label berikutnya.
+            $pattern = [regex]::Escape($fn) + "\r?\n[\s\S]*?(?=\r?\n:[A-Za-z_])"
+            $m = [regex]::Match($c, $pattern)
+            if (-not $m.Success) { throw ("Cannot locate " + $fn + " definition in IAS.cmd") }
+            $body = $m.Value
+            # Harus ada `if %_NCS% EQU 1 goto <label>` di body.
+            if ($body -notmatch 'if %_NCS% EQU 1 goto') {
+              throw ($fn + ' must use `if %_NCS% EQU 1 goto <label>` structure (not `if ... (echo ...) else (...)`) to avoid cmd crash when %~N contains closing paren - e.g. "Memasang pengawas popup fake-serial (scheduled task)"')
+            }
+            # TIDAK BOLEH ada `echo %esc%` di DALAM blok `if %_NCS% EQU 1 (`.
+            # Pakai sederhana: cari baris yang mulai dengan `if %_NCS% EQU 1 (`
+            # dalam body - ini anti-pola v1.9.14 lama.
+            if ($body -match 'if %_NCS% EQU 1 \(') {
+              throw ($fn + ' uses legacy `if %_NCS% EQU 1 (echo ...)` parenthesized block - will crash cmd when an argument contains ")". Use `if ... goto` label structure instead.')
+            }
+          }
+          Write-Host 'OK: IAS.cmd :_color / :_color2 use goto-based structure (paren-safe)'
+
+      - name: Wrapper scripts use choice /c 0 /n wait loop (Normal/Quick/Reset_Activation.cmd)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # v1.9.11 memakai `pause <con` di launcher untuk menahan konsol,
+          # tapi `<con` handle tidak selalu valid di elevated cmd yang
+          # dilahirkan via `Start-Process -Verb RunAs` (pause exit instan
+          # membaca EOF). v1.9.13 pindah ke `choice /c 0 /n` loop yang
+          # membaca lewat Win32 Console API langsung ke handle console.
           foreach ($f in 'Normal_Activation.cmd','Quick_Activation.cmd','Reset_Activation.cmd') {
             $c = Get-Content -Raw -LiteralPath $f
-            if ($c -notmatch 'pause <con') {
-              throw ($f + ' must use `pause <con` so the window does not close instantly when elevation redirects stdin')
+            if ($c -notmatch ':launcher_wait') {
+              throw ($f + ' must define :launcher_wait label for choice wait loop')
             }
-            Write-Host ('OK: ' + $f + ' uses pause <con')
+            if ($c -notmatch 'choice /c 0 /n') {
+              throw ($f + ' must use `choice /c 0 /n` wait loop (no `pause <con`)')
+            }
+            # v1.9.14: `:launcher_wait` must be OUTSIDE any `if (...)` block.
+            # Labels inside parens are unreliable in batch interpreter.
+            # Guard: pastikan tidak ada ':launcher_wait' yang muncul di dalam
+            # blok if yang diawali dengan baris yang berakhir '(' dan belum
+            # ditutup dengan ')'.
+            $lines = $c -split "`r?`n"
+            $depth = 0
+            foreach ($line in $lines) {
+              # Rough depth tracker: count unmatched '(' vs ')' on each line.
+              $opens  = ([regex]::Matches($line, '\(')).Count
+              $closes = ([regex]::Matches($line, '\)')).Count
+              if ($line -match ':launcher_wait' -and $depth -gt 0) {
+                throw ($f + ' has :launcher_wait inside a parenthesized block - label in parens is unreliable in batch')
+              }
+              $depth = $depth + $opens - $closes
+              if ($depth -lt 0) { $depth = 0 }
+            }
+            if ($c -match '/log') {} else {
+              throw ($f + ' must pass `/log` to IAS.cmd so a log file is always produced')
+            }
+            Write-Host ('OK: ' + $f + ' uses choice /c 0 /n + /log, label outside parens')
           }
+
+      - name: Debug_Activation.cmd wrapper present and wires tee to log file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path -LiteralPath 'Debug_Activation.cmd')) {
+            throw 'Debug_Activation.cmd is missing - it is needed for end-users to capture diagnostic logs when the console closes mid-activation'
+          }
+          $c = Get-Content -Raw -LiteralPath 'Debug_Activation.cmd'
+          foreach ($needle in @('Tee-Object','IAS-DEBUG-','Normal_Activation.cmd','choice /c 0 /n',':debug_wait','_debug_run.ps1')) {
+            if ($c -notmatch [regex]::Escape($needle)) {
+              throw ('Debug_Activation.cmd missing: ' + $needle)
+            }
+            Write-Host ('OK: Debug_Activation.cmd contains ' + $needle)
+          }
+          # v1.9.14 regression: Debug_Activation.cmd harus TIDAK pakai
+          # `cmd /c` di argument PowerShell karena escape quoting-nya rusak
+          # untuk path ber-spasi seperti "C:\Users\John Doe\...".
+          if ($c -match 'cmd /c') {
+            throw 'Debug_Activation.cmd still uses `cmd /c` in PowerShell args - this breaks for paths with spaces. Use an external .ps1 script instead.'
+          }
+          Write-Host 'OK: Debug_Activation.cmd does not use `cmd /c` with escape-prone args'
 
       - name: Verify CRLF + ASCII hygiene
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($f in 'IAS.cmd','Test_Script.cmd','Quick_Activation.cmd','Normal_Activation.cmd','Reset_Activation.cmd') {
+          foreach ($f in 'IAS.cmd','Test_Script.cmd','Quick_Activation.cmd','Normal_Activation.cmd','Reset_Activation.cmd','Debug_Activation.cmd') {
             $bytes = [System.IO.File]::ReadAllBytes((Join-Path (Get-Location) $f))
             if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw ($f + ' has UTF-8 BOM') }
             for ($i = 0; $i -lt $bytes.Length; $i++) {
