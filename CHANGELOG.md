@@ -8,6 +8,27 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.15 - 2026-04-27
+
+### Perbaikan KRITIS
+- **Konsol crash setelah `Menulis nama email dan serial acak ke registri`** dengan error `Normal_Activation.cmd : was unexpected at this time.` Akar masalah: fungsi `:_color` dan `:_color2` memakai struktur `if %_NCS% EQU 1 (echo %esc%[%~1%~2%esc%[%~3%~4%esc%[0m) else (...)`. Ketika `:install_popup_watcher` / `:install_trial_resetter` memanggil `:ui_info "Memasang pengawas popup fake-serial (scheduled task)"`, pesan mengandung `)` — yang **menutup blok `if` lebih awal** di saat batch parser membaca blok. Ini error klasik: percent-expansion parse-time + kurung tutup di argumen + blok parenthesized = cmd crash.
+  - User menjalankan v1.9.14, Debug_Activation.cmd menangkap log: reg add HKCU/Serial sukses, lalu langsung cmd mati. Log ini langsung menunjuk lokasi crash.
+  - **Fix:** restrukturisasi `:_color` dan `:_color2` memakai `if ... goto <label>` + label terpisah di luar parens. Echo dengan `%~N` yang mengandung `)` sekarang dieksekusi di top-level scope, tidak di dalam blok. Mengikuti prinsip yang sama dengan fix label-wait di v1.9.13/v1.9.14.
+- Pesan `"Memasang pengawas popup fake-serial (scheduled task)"` dan `"Memasang resetter trial IDM (scheduled task tiap 5 menit)"` tidak perlu diubah — struktur `:_color2` yang baru aman untuk pesan apapun termasuk yang mengandung kurung.
+
+### Perubahan
+- `IAS.cmd` v1.9.14 → v1.9.15.
+- `:_color` dan `:_color2`: struktur goto-based, tidak lagi memakai `if (...) else (...)` parenthesized.
+- `.github/workflows/windows-smoke.yml`:
+  - Guard baru: scan `:_color` dan `:_color2` wajib memakai `goto` label pattern, TIDAK boleh memakai `if ... (echo %~N...) else (...)` pattern.
+  - Guard baru: setiap `call :ui_info`, `call :ui_done`, `call :ui_prompt`, dll. diperbolehkan mengandung `(` dan `)` tanpa masalah (tidak perlu escape) — memastikan tim tidak mencoba memperbaiki bug dengan menghapus kurung dari pesan.
+
+### Teknis
+- Percent-substitution di cmd.exe terjadi di parse time sebelum blok `if (...)` selesai dibaca. Jika `%~N` memuat `)` (bukan bagian pasangan `(...)` balanced), batch parser menutup blok di posisi `)`, lalu melihat sisa pesan + ` else (...)` sebagai sintaks aneh → `was unexpected at this time.`
+- Perbaikan dengan `goto` menghindari masalah ini karena echo dengan `%~N` dijalankan di scope top-level di mana kurung tidak diinterpretasi sebagai block delimiter.
+
+---
+
 ## v1.9.14 - 2026-04-27
 
 ### Perbaikan

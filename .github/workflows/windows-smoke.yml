@@ -156,6 +156,37 @@ jobs:
           }
           Write-Host 'OK: IAS.cmd :done / :done2 use choice /c 0 /n wait loop'
 
+      - name: IAS.cmd :_color / :_color2 use goto-based structure (not parenthesized if-else)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # v1.9.15 regression check: pesan seperti "(scheduled task)" yang
+          # mengandung `)` di-echo lewat :_color2. Jika :_color / :_color2
+          # memakai `if %_NCS% EQU 1 (echo %~1%~2%~3%~4) else (...)`, kurung
+          # tutup di %~N akan MENUTUP blok if di parse time -> cmd crash:
+          #   `Normal_Activation.cmd : was unexpected at this time.`
+          # Fix: pakai `if %_NCS% EQU 1 goto <label>` dengan label terpisah
+          # di top-level scope (di luar parens manapun).
+          $c = Get-Content -Raw -LiteralPath 'IAS.cmd'
+          foreach ($fn in ':_color',':_color2') {
+            # Cari definisi fungsi dan body-nya sampai label berikutnya.
+            $pattern = [regex]::Escape($fn) + "\r?\n[\s\S]*?(?=\r?\n:[A-Za-z_])"
+            $m = [regex]::Match($c, $pattern)
+            if (-not $m.Success) { throw ("Cannot locate " + $fn + " definition in IAS.cmd") }
+            $body = $m.Value
+            # Harus ada `if %_NCS% EQU 1 goto <label>` di body.
+            if ($body -notmatch 'if %_NCS% EQU 1 goto') {
+              throw ($fn + ' must use `if %_NCS% EQU 1 goto <label>` structure (not `if ... (echo ...) else (...)`) to avoid cmd crash when %~N contains closing paren - e.g. "Memasang pengawas popup fake-serial (scheduled task)"')
+            }
+            # TIDAK BOLEH ada `echo %esc%` di DALAM blok `if %_NCS% EQU 1 (`.
+            # Pakai sederhana: cari baris yang mulai dengan `if %_NCS% EQU 1 (`
+            # dalam body - ini anti-pola v1.9.14 lama.
+            if ($body -match 'if %_NCS% EQU 1 \(') {
+              throw ($fn + ' uses legacy `if %_NCS% EQU 1 (echo ...)` parenthesized block - will crash cmd when an argument contains ")". Use `if ... goto` label structure instead.')
+            }
+          }
+          Write-Host 'OK: IAS.cmd :_color / :_color2 use goto-based structure (paren-safe)'
+
       - name: Wrapper scripts use choice /c 0 /n wait loop (Normal/Quick/Reset_Activation.cmd)
         shell: pwsh
         run: |

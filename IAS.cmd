@@ -1,4 +1,4 @@
-@set iasver=1.9.14
+@set iasver=1.9.15
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -1396,20 +1396,26 @@ exit /b
 
 :_color
 
-if %_NCS% EQU 1 (
-echo %esc%[%~1%~2%esc%[0m
-) else (
+::  v1.9.15: pakai struktur goto, BUKAN `if (...) else (...)`.
+::  Pesan yang mengandung kurung (mis. "(scheduled task)") jika di-echo
+::  DI DALAM blok if parenthesized, kurung tutupnya akan menutup blok
+::  lebih awal di parse time -> cmd error " was unexpected at this time".
+if %_NCS% EQU 1 goto _color_esc
 %psc% write-host -back '%1' -fore '%2' '%3'
-)
+exit /b
+:_color_esc
+echo %esc%[%~1%~2%esc%[0m
 exit /b
 
 :_color2
 
-if %_NCS% EQU 1 (
-echo %esc%[%~1%~2%esc%[%~3%~4%esc%[0m
-) else (
+::  v1.9.15: sama seperti :_color, struktur goto untuk menghindari
+::  penutupan blok dini ketika argumen mengandung kurung.
+if %_NCS% EQU 1 goto _color2_esc
 %psc% write-host -back '%1' -fore '%2' '%3' -NoNewline; write-host -back '%4' -fore '%5' '%6'
-)
+exit /b
+:_color2_esc
+echo %esc%[%~1%~2%esc%[%~3%~4%esc%[0m
 exit /b
 
 ::========================================================================================================================================
