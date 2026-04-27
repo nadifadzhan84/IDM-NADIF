@@ -53,8 +53,8 @@ echo [INFO] Konsol TIDAK akan menutup otomatis walau Normal_Activation crash.
 echo.
 
 ::  PENTING: path NORMAL dan DEBUG_LOG kemungkinan mengandung spasi
-::  (mis. "C:\Users\John Doe\..."). Di v1.9.13 kita pakai `cmd /c "..."`
-::  di dalam argumen PowerShell, yang ternyata merusak quoting path
+::  (mis. "C:\Users\John Doe\..."). Di v1.9.13 wrapper pakai cmd-slash-c inline
+::  di argumen PowerShell, yang ternyata merusak quoting path
 ::  ber-spasi (error "'C:\Users\Yoyong' is not recognized").
 ::
 ::  v1.9.14: generate script .ps1 sementara yang menerima path sebagai
