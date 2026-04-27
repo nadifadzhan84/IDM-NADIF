@@ -8,6 +8,35 @@ Dokumen ini mencatat semua perubahan yang dirilis untuk IDM Activation Script. P
 
 ---
 
+## v1.9.13 - 2026-04-27
+
+### Perbaikan
+- **Konsol masih bisa menutup sendiri di TENGAH alur aktivasi, bukan hanya di `:done`.** Laporan user: "masih close sendirinya saat berjalan aktivasi IDM dan saat sudah mau selesai langsung close cmd-nya". Akar masalah tambahan yang ditemukan:
+  1. **Label `:_done_wait0` sebelumnya berada di dalam blok `if %_unattended%==1 (...)`**. Label di dalam parenthesis rentan di-misinterpretasi oleh batch interpreter (terutama ketika delayed expansion aktif atau goto dari dalam blok yang sama). Pada sebagian sistem, kombinasi ini menyebabkan `exit /b` eksekusi sebelum `choice` sempat membaca input. v1.9.13 memindah kedua label wait loop ke luar blok — `:done_unattended` dan `:done2_unattended` sekarang jadi section terpisah.
+  2. **Launcher `Normal_Activation.cmd` / `Quick_Activation.cmd` / `Reset_Activation.cmd` masih pakai `pause <con`** — sama seperti `pause >nul <con` di IAS, ini gagal di sebagian sistem elevated. v1.9.13 ganti ke pola yang sama: loop `choice /c 0 /n` dengan label `:_launcher_wait0` sebagai safety net tambahan.
+
+### Baru
+- **`Debug_Activation.cmd` — wrapper diagnostik.** Klik kanan file ini → Run as administrator, maka ia akan:
+  - Self-elevate otomatis (seperti launcher lain).
+  - Jalankan `Normal_Activation.cmd` dengan PowerShell `Tee-Object` → SEMUA stdout + stderr ditangkap ke `IAS-DEBUG-<timestamp>.log` di folder yang sama, DAN tetap ditampilkan di layar.
+  - SELALU menahan konsol di akhir dengan `choice /c 0 /n` apapun yang terjadi (crash di tengah, exit non-zero, atau sukses).
+  - Menampilkan daftar file `%SystemRoot%\Temp\IAS-*.log` yang ditulis oleh IAS selama proses.
+  - Tujuan: memudahkan user mengirim log lengkap ke pengembang kalau masalah persisten.
+- **Launcher utama sekarang otomatis mengaktifkan flag `/log`.** `Normal_Activation.cmd` → `IAS.cmd /act /log`, `Quick_Activation.cmd` → `IAS.cmd /frz /log`, `Reset_Activation.cmd` → `IAS.cmd /res /log`. File log akan selalu tersedia di `%SystemRoot%\Temp\IAS-*.log` tanpa perlu user menambah flag manual. Path log dicantumkan di banner akhir `:done_unattended` / `:done2_unattended`.
+
+### Perubahan
+- `IAS.cmd` v1.9.12 → v1.9.13.
+- Struktur `:done` dan `:done2` dipecah jadi dua label terpisah (`:done_unattended` / `:done2_unattended`) untuk menghindari risiko label-in-parens.
+- `.github/workflows/windows-smoke.yml` CI guard diupdate: cek `:_launcher_wait0` + `/log` di launcher, cek `Debug_Activation.cmd` punya `Tee-Object` + label wait + referensi ke Normal_Activation.
+- CRLF hygiene check ditambah `Debug_Activation.cmd`.
+
+### Kompatibilitas
+- Mode `/silent` tetap auto-exit tanpa wait (perilaku tidak berubah).
+- Flow interaktif tanpa flag (jalankan `IAS.cmd` langsung) tetap pakai MainMenu → `choice /c 0`.
+- `Debug_Activation.cmd` memanggil Normal_Activation via `cmd /c` di dalam PowerShell child supaya `exit` (bukan `exit /b`) di dalam Normal_Activation tidak membunuh konsol Debug.
+
+---
+
 ## v1.9.12 - 2026-04-27
 
 ### Perbaikan

@@ -156,23 +156,49 @@ jobs:
           }
           Write-Host 'OK: IAS.cmd :done / :done2 use choice /c 0 /n wait loop'
 
-      - name: Wrapper scripts use pause <con (Normal/Quick/Reset_Activation.cmd)
+      - name: Wrapper scripts use choice /c 0 /n wait loop (Normal/Quick/Reset_Activation.cmd)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # v1.9.11 memakai `pause <con` di launcher untuk menahan konsol,
+          # tapi `<con` handle tidak selalu valid di elevated cmd yang
+          # dilahirkan via `Start-Process -Verb RunAs` (pause exit instan
+          # membaca EOF). v1.9.13 pindah ke `choice /c 0 /n` loop yang
+          # membaca lewat Win32 Console API langsung ke handle console.
           foreach ($f in 'Normal_Activation.cmd','Quick_Activation.cmd','Reset_Activation.cmd') {
             $c = Get-Content -Raw -LiteralPath $f
-            if ($c -notmatch 'pause <con') {
-              throw ($f + ' must use `pause <con` so the window does not close instantly when elevation redirects stdin')
+            if ($c -notmatch ':_launcher_wait0') {
+              throw ($f + ' must define :_launcher_wait0 label for choice wait loop')
             }
-            Write-Host ('OK: ' + $f + ' uses pause <con')
+            if ($c -notmatch 'choice /c 0 /n') {
+              throw ($f + ' must use `choice /c 0 /n` wait loop (no `pause <con`)')
+            }
+            if ($c -match '/log') {} else {
+              throw ($f + ' must pass `/log` to IAS.cmd so a log file is always produced')
+            }
+            Write-Host ('OK: ' + $f + ' uses choice /c 0 /n + /log')
+          }
+
+      - name: Debug_Activation.cmd wrapper present and wires tee to log file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path -LiteralPath 'Debug_Activation.cmd')) {
+            throw 'Debug_Activation.cmd is missing - it is needed for end-users to capture diagnostic logs when the console closes mid-activation'
+          }
+          $c = Get-Content -Raw -LiteralPath 'Debug_Activation.cmd'
+          foreach ($needle in @('Tee-Object','IAS-DEBUG-','Normal_Activation.cmd','choice /c 0 /n',':_debug_wait0')) {
+            if ($c -notmatch [regex]::Escape($needle)) {
+              throw ('Debug_Activation.cmd missing: ' + $needle)
+            }
+            Write-Host ('OK: Debug_Activation.cmd contains ' + $needle)
           }
 
       - name: Verify CRLF + ASCII hygiene
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($f in 'IAS.cmd','Test_Script.cmd','Quick_Activation.cmd','Normal_Activation.cmd','Reset_Activation.cmd') {
+          foreach ($f in 'IAS.cmd','Test_Script.cmd','Quick_Activation.cmd','Normal_Activation.cmd','Reset_Activation.cmd','Debug_Activation.cmd') {
             $bytes = [System.IO.File]::ReadAllBytes((Join-Path (Get-Location) $f))
             if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw ($f + ' has UTF-8 BOM') }
             for ($i = 0; $i -lt $bytes.Length; $i++) {

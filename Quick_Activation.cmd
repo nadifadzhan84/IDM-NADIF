@@ -21,14 +21,27 @@ if %errorlevel% NEQ 0 (
     exit /b
 )
 
-echo [INFO] Memanggil IAS.cmd /frz (mode aktivasi beku)...
-call "%IAS%" /frz %*
+echo [INFO] Memanggil IAS.cmd /frz /log (mode aktivasi beku)...
+echo [INFO] Log detail akan ditulis ke %%SystemRoot%%\Temp\IAS-*.log
+echo.
+call "%IAS%" /frz /log %*
 set "ret=%errorlevel%"
+echo.
 if not "%ret%"=="0" (
     echo [PETUNJUK] IAS.cmd mengembalikan kode %ret%. Lihat output layar atau jalankan dulu "Test_Script.cmd" untuk memeriksa lingkungan.
+) else (
+    echo [INFO] IAS.cmd selesai dengan kode 0 (sukses).
 )
-::  Pakai `<con` agar pause selalu membaca dari console asli, bukan stdin
-::  yang mungkin ter-redirect oleh `Start-Process -Verb RunAs` di langkah
-::  elevasi. Tanpa ini pause kadang exit instan dan jendela menutup sendiri.
-echo %* | find /i "/silent" >nul || pause <con
+
+::  Safety net: `choice /c 0 /n` (bukan `pause`) supaya konsol tidak
+::  menutup sendiri walau stdin ter-redirect oleh elevasi.
+echo %* | find /i "/silent" >nul
+if errorlevel 1 (
+    echo.
+    echo Ketik 0 untuk menutup konsol launcher.
+    :_launcher_wait0
+    choice /c 0 /n
+    if errorlevel 2 goto _launcher_wait0
+    if not errorlevel 1 goto _launcher_wait0
+)
 endlocal & exit /b %ret%

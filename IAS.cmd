@@ -1,4 +1,4 @@
-@set iasver=1.9.12
+@set iasver=1.9.13
 @setlocal DisableDelayedExpansion
 @echo off
 
@@ -732,32 +732,7 @@ call :ui_line
 echo:
 echo:
 call :log "Alur selesai, kode keluar %exit_code%"
-if %_unattended%==1 (
-if %_silent%==1 exit /b %exit_code%
-::  Mode senyap /silent tetap exit otomatis. Untuk /act /frz /res yang
-::  dijalankan dari launcher (Normal_Activation / Quick_Activation /
-::  Reset_Activation) kita TIDAK boleh auto-close. Skrip asli Mandarin
-::  mengharuskan user mengetik 0 untuk menutup konsol, jadi kita tiru
-::  perilaku itu di sini: tampilkan banner sukses lalu tahan konsol
-::  dengan `choice /c 0 /n` sampai user benar-benar mengetik 0.
-::
-::  Penting: `choice` TIDAK di-redirect via `<con`. `choice` membaca
-::  input melalui Win32 Console API (ReadConsoleInput) langsung ke
-::  handle console, sehingga tidak terpengaruh stdin yang mungkin
-::  sudah ter-redirect oleh `Start-Process -Verb RunAs` dari launcher.
-::  Percobaan sebelumnya dengan `pause >nul <con` masih menutup
-::  sendiri karena handle `<con` tidak selalu valid di konsol
-::  elevated. `choice` tanpa redirect jauh lebih andal.
-echo:
-call :ui_done "AKTIVASI SELESAI"
-echo:
-call :ui_prompt "Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"
-:_done_wait0
-choice /c 0 /n
-if errorlevel 2 goto _done_wait0
-if not errorlevel 1 goto _done_wait0
-exit /b %exit_code%
-)
+if %_unattended%==1 goto done_unattended
 
 if defined terminal (
 call :ui_prompt "Tekan 0 untuk kembali ke dashboard"
@@ -768,25 +743,43 @@ pause
 )
 goto MainMenu
 
+::========================================================================================================================================
+
+:done_unattended
+
+::  Mode senyap /silent tetap exit otomatis. Untuk /act /frz /res yang
+::  dijalankan dari launcher (Normal_Activation / Quick_Activation /
+::  Reset_Activation) kita TIDAK boleh auto-close. Skrip asli Mandarin
+::  menampilkan prompt "ketik 0 untuk menutup", kita tiru di sini.
+::
+::  IMPORTANT: label :_done_wait0 SENGAJA dipisah dari blok `if (...)` di
+::  atas. Label di dalam parenthesis rentan bug karena batch kadang
+::  memperlakukannya berbeda (terutama dengan delayed expansion atau
+::  goto ke label di dalam blok yang sama). Pindah ke label terpisah
+::  menghindari risiko "konsol exit diam-diam" di alur ini.
+if %_silent%==1 exit /b %exit_code%
+echo:
+call :ui_done "AKTIVASI SELESAI"
+echo:
+if defined log_file (
+echo File log: %log_file%
+echo:
+)
+call :ui_prompt "Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"
+:_done_wait0
+::  `choice /c 0 /n` tanpa redirect `<con`. choice membaca lewat Win32
+::  Console API langsung ke handle console, bukan stdin, sehingga tetap
+::  menahan konsol walau launcher `Start-Process -Verb RunAs` sudah
+::  me-redirect stdin.
+choice /c 0 /n
+if errorlevel 2 goto _done_wait0
+if not errorlevel 1 goto _done_wait0
+exit /b %exit_code%
+
 :done2
 
 call :log "Alur selesai, kode keluar %exit_code%"
-if %_unattended%==1 (
-if %_silent%==1 exit /b %exit_code%
-::  Lihat catatan di :done. Kita pakai `choice /c 0 /n` tanpa redirect
-::  `<con` supaya membaca input lewat Win32 Console API langsung ke
-::  handle console - konsol tidak akan menutup sendiri walau stdin
-::  sudah ter-redirect oleh `Start-Process -Verb RunAs`.
-echo:
-call :ui_done "PROSES SELESAI"
-echo:
-call :ui_prompt "Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"
-:_done2_wait0
-choice /c 0 /n
-if errorlevel 2 goto _done2_wait0
-if not errorlevel 1 goto _done2_wait0
-exit /b %exit_code%
-)
+if %_unattended%==1 goto done2_unattended
 
 if defined terminal (
 call :ui_prompt "Tekan 0 untuk keluar dari konsol"
@@ -796,6 +789,27 @@ choice /c 0 /n
 	pause
 	)
 	exit /b %exit_code%
+
+::========================================================================================================================================
+
+:done2_unattended
+
+::  Lihat catatan di :done_unattended - label dipisah dari blok `if` supaya
+::  batch tidak salah tafsir goto ke label di dalam parenthesis.
+if %_silent%==1 exit /b %exit_code%
+echo:
+call :ui_done "PROSES SELESAI"
+echo:
+if defined log_file (
+echo File log: %log_file%
+echo:
+)
+call :ui_prompt "Ketik 0 untuk menutup konsol (wajib, tidak auto-close)"
+:_done2_wait0
+choice /c 0 /n
+if errorlevel 2 goto _done2_wait0
+if not errorlevel 1 goto _done2_wait0
+exit /b %exit_code%
 
 ::========================================================================================================================================
 
